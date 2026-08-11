@@ -8,7 +8,7 @@
   font-size: 16px;
   line-height: 1.7;
   color: var(--text);
-  background: var(--bg);
+  background: var(--surface);
   letter-spacing: -0.01em;
 }
 
@@ -18,6 +18,10 @@
   padding: 0;
   display: block;
   width: 100%;
+  /* ProseMirror 要求 white-space 显式设为 pre-wrap,否则会输出告警且
+     空白折叠/换行测量行为异常(代码块自带 white-space:pre 覆盖,不受影响) */
+  white-space: pre-wrap;
+  word-wrap: break-word;
 }
 .milkdown .ProseMirror:focus {
   outline: none;
@@ -114,22 +118,104 @@
   letter-spacing: 0;
 }
 
-/* 代码块 */
-.milkdown pre {
+/* 代码块（NodeView 渲染工具栏 + pre>code 容器；高亮由 ShikiHighlightPlugin
+   注入 inline decoration，在 <code> 同一份文本节点上着色 —— 单层 DOM，不抖动） */
+.milkdown .code-block-wrap {
+  position: relative;
+  margin: 0 0 18px;
+  background: var(--sidebar-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.milkdown .code-block-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.milkdown .code-block-lang {
+  font-family: "SF Mono", "SFMono-Regular", Consolas, Menlo, monospace;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--text-tertiary);
+  letter-spacing: 0.04em;
+  text-transform: lowercase;
+}
+/* 代码区：单层 pre>code，文本由 ProseMirror 渲染，decoration 仅给 token 上色 */
+.milkdown .code-block-pre {
+  margin: 0;
+  padding: 14px 18px;
+  background: transparent;
+  overflow: auto;
+}
+.milkdown .code-block-content {
+  display: block;
   font-family: "SF Mono", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
   font-size: 0.875em;
   line-height: 1.6;
-  padding: 18px;
-  margin: 0 0 18px;
-  overflow: auto;
-  background: var(--sidebar-bg);
-  border-radius: 6px;
-  border: 1px solid var(--border);
+  color: var(--text);
+  caret-color: var(--text);
+  background: transparent;
+  white-space: pre;
+  outline: none;
 }
-.milkdown pre code {
-  padding: 0;
-  background: none;
-  font-size: 1em;
+
+/* 代码块复制按钮（工具栏内） */
+.code-copy {
+  padding: 3px 9px;
+  font-size: 11px;
+  font-family: inherit;
+  color: var(--text-secondary);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+.code-copy:hover {
+  background: var(--hover-active);
+  color: var(--text);
+}
+
+/* 编辑区选中文本高亮 */
+.milkdown .ProseMirror ::selection {
+  background: rgba(37, 99, 235, 0.16);
+}
+
+/* 图片放大预览层 */
+.img-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+  cursor: zoom-out;
+  animation: lightbox-in 150ms ease;
+}
+.img-lightbox img {
+  max-width: 90vw;
+  max-height: 90vh;
+  border-radius: 8px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+}
+@keyframes lightbox-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* HTML 节点渲染：milkdown 默认用 textContent 显示 HTML 标签，
+   通过 JS 后处理改为 innerHTML 真正渲染。块级标签需 display:block */
+.milkdown span[data-type="html"] {
+  display: contents; /* 默认不占额外布局，让内部标签自然渲染 */
+}
+.milkdown span[data-type="html"][style*="display: block"] {
+  display: block;
+  margin: 16px 0;
 }
 
 /* 引用 */
@@ -193,3 +279,36 @@
 .milkdown strong { font-weight: 600; }
 .milkdown em { font-style: italic; }
 .milkdown del { color: var(--text-tertiary); }
+
+/* 数学公式(KaTeX 渲染,只读) */
+.milkdown .math-inline { display: inline; }
+.milkdown .math-block {
+  margin: 16px 0;
+  text-align: center;
+  overflow-x: auto;
+}
+.milkdown .math-block .katex-display { margin: 0; }
+
+/* Mermaid 图表(SVG,只读) */
+.milkdown .mermaid-block {
+  margin: 16px 0;
+  text-align: center;
+  overflow-x: auto;
+}
+.milkdown .mermaid-block svg {
+  max-width: 100%;
+  height: auto;
+}
+.milkdown .mermaid-fallback {
+  margin: 0;
+  padding: 14px 18px;
+  text-align: left;
+  background: var(--sidebar-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-family: "SF Mono", "SFMono-Regular", Consolas, Menlo, monospace;
+  font-size: 0.875em;
+  color: var(--text-secondary);
+  white-space: pre;
+  overflow: auto;
+}

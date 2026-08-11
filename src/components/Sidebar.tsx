@@ -10,6 +10,7 @@ interface SidebarProps {
   onSelect: (path: string) => void;
   onOpenFolder: () => void;
   onOpenFile: () => void;
+  onNewFile: () => void;
   /** 由 App 承载的右键菜单触发器：传坐标 + 菜单项 */
   onContext: (e: React.MouseEvent, items: MenuItem[]) => void;
   onDelete: (path: string) => void;
@@ -62,6 +63,38 @@ async function readChildren(parentPath: string): Promise<Node[]> {
   return nodes;
 }
 
+/** 搜索：BFS 递归扫描 rootDir，收集文件名包含 query 的 md 文件（上限 50） */
+async function searchMarkdown(root: string, query: string, limit = 50): Promise<Node[]> {
+  const q = query.toLowerCase();
+  const results: Node[] = [];
+  const queue: string[] = [root];
+  while (queue.length > 0 && results.length < limit) {
+    const dir = queue.shift()!;
+    let entries;
+    try {
+      entries = await readDir(dir);
+    } catch {
+      continue;
+    }
+    for (const e of entries) {
+      if (results.length >= limit) break;
+      if (!e.name || e.name.startsWith(".")) continue;
+      const full = joinPath(dir, e.name);
+      if (e.isDirectory) {
+        queue.push(full);
+      } else if (isMarkdown(e.name) && e.name.toLowerCase().includes(q)) {
+        results.push({ name: e.name, fullPath: full, isDirectory: false });
+      }
+    }
+  }
+  return results;
+}
+
+/* 平台修饰键 */
+const isMac =
+  typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
+const M = isMac ? "⌘" : "Ctrl";
+
 /* ===== 内联 SVG 图标（16px，统一 stroke 风格） ===== */
 type IconProps = { className?: string };
 
@@ -89,6 +122,16 @@ function FolderIcon({ className }: IconProps) {
     </svg>
   );
 }
+function FolderOpenIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M6 14l1.5-4.5h13L19 14z" />
+      <path d="M3 18V6h6l2 2h8v2" />
+      <path d="M3 18h16" />
+    </svg>
+  );
+}
 function FileMarkdown({ className }: IconProps) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none"
@@ -107,11 +150,22 @@ function FileGeneric({ className }: IconProps) {
     </svg>
   );
 }
-function PlusIcon({ className }: IconProps) {
+function FileOpenIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M6 3h7l5 5v13H6z" />
+      <path d="M13 3v5h5" />
+      <path d="M9 14h6M9 17h4" />
+    </svg>
+  );
+}
+function SearchIcon({ className }: IconProps) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none"
       stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 5v14M5 12h14" />
+      <circle cx="11" cy="11" r="8" />
+      <path d="M21 21l-4.35-4.35" />
     </svg>
   );
 }
@@ -402,6 +456,7 @@ export function Sidebar({
   onSelect,
   onOpenFolder,
   onOpenFile,
+  onNewFile,
   onContext,
   onDelete,
   onRename,
@@ -411,6 +466,41 @@ export function Sidebar({
   const [roots, setRoots] = useState<Node[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [dialog, setDialog] = useState<DialogOpts | null>(null);
+  const [search, setSearch] = useState("");
+  const [results, setResults] = useState<Node[] | null>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  // ⌘K / Ctrl+K 聚焦搜索框
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        searchRef.current?.focus();
+        searchRef.current?.select();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  // 搜索防抖：非空时 BFS 扫描，空时清空结果
+  useEffect(() => {
+    const q = search.trim();
+    if (!q || !rootDir) {
+      setResults(null);
+      return;
+    }
+    let cancelled = false;
+    const t = setTimeout(() => {
+      searchMarkdown(rootDir, q).then((r) => {
+        if (!cancelled) setResults(r);
+      });
+    }, 200);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [search, rootDir, fsVersion]);
 
   useEffect(() => {
     setRoots(null);
@@ -442,6 +532,8 @@ export function Sidebar({
     [fsVersion, onContext, onDelete, onRename, onCreateFile, onCreateDir],
   );
 
+  const searching = search.trim().length > 0;
+
   const fileTree = error ? (
     <div className="sidebar-empty">
       <p className="empty-text">读取失败：{error}</p>
@@ -467,51 +559,97 @@ export function Sidebar({
     ))
   );
 
-  if (!rootDir) {
-    return (
-      <aside className="sidebar">
-        <div className="sidebar-empty">
-          <svg viewBox="0 0 24 24" fill="none"
-            stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M4 4h6l2 2h8v14H4z" />
-          </svg>
-          <p className="empty-text">打开一个文件或文件夹<br />这里会显示文件树</p>
-          <div className="sidebar-empty-actions">
-            <button className="sidebar-btn primary" onClick={onOpenFolder}>
-              打开文件夹
-            </button>
-            <button className="sidebar-btn" onClick={onOpenFile}>
-              打开文件
-            </button>
-          </div>
-        </div>
-        {dialog && <PromptDialog opts={dialog} onClose={() => setDialog(null)} />}
-      </aside>
-    );
-  }
-
   return (
     <aside className="sidebar">
-      <div className="sidebar-header" title={rootDir}>
-        <FolderIcon />
-        <span className="root-name">{baseName(rootDir)}</span>
+      {/* 工作区头：头像 + 根目录名 + 下拉箭头（点击切换文件夹） */}
+      <button
+        className="nav-org-selector"
+        onClick={onOpenFolder}
+        title={rootDir ? `切换文件夹（当前：${rootDir}）` : "打开文件夹"}
+      >
+        <span className="nav-org-avatar">S</span>
+        <span className="nav-org-name">{rootDir ? baseName(rootDir) : "Soul Mark"}</span>
+        <ChevronDown className="nav-org-chevron" />
+      </button>
+
+      {/* 搜索栏：⌘K 聚焦，实时过滤 md 文件 */}
+      <div className="nav-search">
+        <SearchIcon />
+        <input
+          ref={searchRef}
+          value={search}
+          placeholder="搜索..."
+          onChange={(e) => setSearch(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") setSearch("");
+          }}
+        />
+        <span className="nav-search-kbd">{isMac ? "⌘" : "Ctrl"}K</span>
+      </div>
+
+      {/* 快捷操作 */}
+      <button className="nav-item" onClick={onNewFile}>
+        <FileOpenIcon />
+        <span>新建文件</span>
+        <span className="nav-kbd">{M}N</span>
+      </button>
+      <button className="nav-item" onClick={onOpenFile}>
+        <FileGeneric />
+        <span>打开文件</span>
+        <span className="nav-kbd">{M}O</span>
+      </button>
+      <button className="nav-item" onClick={onOpenFolder}>
+        <FolderOpenIcon />
+        <span>打开文件夹</span>
+      </button>
+
+      {/* 搜索结果 / 文件树 */}
+      {searching ? (
+        <div className="nav-section">
+          <div className="nav-section-title">搜索结果</div>
+          {results === null ? (
+            <div className="tree-empty"><span className="tree-slot" />搜索中…</div>
+          ) : results.length === 0 ? (
+            <div className="tree-empty"><span className="tree-slot" />无匹配文件</div>
+          ) : (
+            results.map((r) => (
+              <div
+                key={r.fullPath}
+                className={`tree-row search-row${currentPath === r.fullPath ? " active" : ""}`}
+                onClick={() => {
+                  onSelect(r.fullPath);
+                  setSearch("");
+                }}
+                title={r.fullPath}
+              >
+                <span className="tree-icon"><FileMarkdown /></span>
+                <span className="tree-name">{r.name}</span>
+              </div>
+            ))
+          )}
+        </div>
+      ) : rootDir ? (
+        <div className="nav-section">
+          <div className="nav-section-title">文件</div>
+          {fileTree}
+        </div>
+      ) : (
+        <div className="sidebar-empty">
+          <FolderOpenIcon className="empty-icon" />
+          <p className="empty-text">打开一个文件或文件夹<br />这里会显示文件树</p>
+        </div>
+      )}
+
+      {/* 底部帮助 */}
+      <div className="nav-bottom">
         <button
-          className="header-action"
-          title="在根目录新建文件"
-          onClick={() =>
-            setDialog({
-              title: "新建文件",
-              hint: "自动追加 .md 后缀",
-              onConfirm: async (v) => {
-                await onCreateFile(rootDir, v);
-              },
-            })
-          }
+          className="nav-help"
+          title={`快捷键：${M}N 新建 · ${M}O 打开 · ${M}S 保存 · ${M}⇧S 另存为`}
         >
-          <PlusIcon />
+          ?
         </button>
       </div>
-      {fileTree}
+
       {dialog && <PromptDialog opts={dialog} onClose={() => setDialog(null)} />}
     </aside>
   );
