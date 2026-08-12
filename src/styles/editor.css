@@ -14,7 +14,10 @@
 
 .milkdown .ProseMirror {
   outline: none;
-  min-height: 60vh;
+  /* 不设 min-height:之前用 60vh 会导致未打开文件时(空文档编辑器仍在 DOM 中)
+     60vh + .milkdown 上下 padding(64+140) 在小窗口下超过 .editor-wrap 可用高度,
+     撑出垂直滚动条。空态由 Welcome 覆盖层占满视觉,编辑器无需强制最小高度;
+     有内容时自然撑高,.editor-wrap(overflow-y:auto)按需滚动。 */
   padding: 0;
   display: block;
   width: 100%;
@@ -22,6 +25,10 @@
      空白折叠/换行测量行为异常(代码块自带 white-space:pre 覆盖,不受影响) */
   white-space: pre-wrap;
   word-wrap: break-word;
+  /* anywhere:对长无空格串(URL/base64/长 token)强制在任意字符间断行,
+     与 break-word 不同处在于它影响 min-content 计算,确保不撑破容器宽度。
+     代码块/表格等 white-space:pre 的块靠各自 overflow:auto 局部滚动,不靠此规则。 */
+  overflow-wrap: anywhere;
 }
 .milkdown .ProseMirror:focus {
   outline: none;
@@ -91,6 +98,11 @@
   border: 1.5px solid var(--text-tertiary);
   border-radius: 3px;
   background: transparent;
+  cursor: pointer;
+  transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+.milkdown ul li[data-checked]:hover::before {
+  border-color: var(--accent);
 }
 .milkdown ul li[data-checked="true"]::before {
   background: var(--accent);
@@ -149,7 +161,8 @@
   margin: 0;
   padding: 14px 18px;
   background: transparent;
-  overflow: auto;
+  /* 不再横向滚动:代码行软换行(pre-wrap),超长 token 由 break-word 兜底断行,
+     与主区 overflow-x:hidden 一致,代码块不出独立横向滚动条。 */
 }
 .milkdown .code-block-content {
   display: block;
@@ -159,7 +172,11 @@
   color: var(--text);
   caret-color: var(--text);
   background: transparent;
-  white-space: pre;
+  /* pre-wrap:保留缩进与显式换行,同时在容器边界软换行;
+     break-word:对超长无空格 token(base64/URL)兜底断行,不撑破代码块宽度。
+     Shiki 高亮是 inline decoration(只改 color),换行渲染不影响 token 着色位置。 */
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
   outline: none;
 }
 

@@ -83,13 +83,15 @@ body,
   display: flex;
   flex: 1;
   min-height: 0;
-  padding: 0 0 8px 8px;
+  /* 仅左侧留 8px 与侧栏分隔;底部/右侧贴满,主内容卡片撑到界面底边。
+     顶部无 padding:顶栏与主内容直接衔接(顶栏自身有高度)。 */
+  padding: 0 0 0 8px;
   gap: 8px;
 }
 
-/* 侧栏收起:去掉左右 padding 与 gap,主内容占满整体宽度;侧栏仍挂载(width 0)以保留内部展开状态 */
+/* 侧栏收起:去掉左侧 padding 与 gap,主内容占满整体宽度;侧栏仍挂载(width 0)以保留内部展开状态 */
 .app.sidebar-collapsed .app-body {
-  padding: 0 0 8px 0;
+  padding: 0;
   gap: 0;
 }
 
@@ -152,40 +154,150 @@ body,
 }
 
 /* 标签与主内容区左对齐:偏移量由 JS(--tabs-ml)控制,展开=内容区左边缘,mac 收起保持不变,win 收起避开展开按钮 */
+/* 标签栏包裹层:承载滚动容器 + 溢出箭头(绝对定位,不占 flex 流,出现/消失不跳变) */
+.topbar-tabs-wrap {
+  position: relative;
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-left: var(--tabs-ml);
+  display: flex;
+  align-items: center;
+}
 .topbar-tabs {
   position: relative;
   z-index: 1;
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-left: var(--tabs-ml);
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none; /* 隐藏滚动条:滚轮已转横向(见 onWheel),滚动能力不丢 */
+}
+.topbar-tabs::-webkit-scrollbar {
+  display: none;
+}
+/* 溢出滚动箭头:绝对定位覆盖 tabs 两端,背景与顶栏一致遮挡 tab 内容 */
+.tab-scroll-btn {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 34px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text-secondary);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+.tab-scroll-btn.left { left: 0; }
+.tab-scroll-btn.right { right: 0; }
+.tab-scroll-btn:hover {
+  background: var(--hover-active);
+  color: var(--text);
+}
+.tab-scroll-btn svg {
+  width: 14px;
+  height: 14px;
 }
 
-/* 当前文件标签 — 图片中 "Projects" 圆角灰底标签样式 */
+/* 标签:圆角灰底,active 用白底突显当前,hover 启用预留的 --tab-bg-hover */
 .topbar-tab {
   display: inline-flex;
   align-items: center;
+  gap: 8px;
   height: 34px;
-  min-width: 160px;
-  max-width: 260px;
-  padding: 0 14px;
+  min-width: 120px;
+  max-width: 220px;
+  padding: 0 8px 0 14px;
   border-radius: 9px;
   background: var(--tab-bg);
-  color: var(--text);
+  color: var(--text-secondary);
   font-size: 13px;
   font-weight: 500;
   letter-spacing: -0.01em;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background var(--t-fast) var(--ease);
+  overflow: hidden;
+}
+.topbar-tab:hover {
+  background: var(--tab-bg-hover);
+}
+.topbar-tab.active {
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 600;
+}
+.topbar-tab-name {
+  flex: 1;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+.topbar-tab-dirty {
+  color: var(--warning);
+  font-size: 9px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.topbar-tab-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+.topbar-tab:hover .topbar-tab-close,
+.topbar-tab.active .topbar-tab-close {
+  opacity: 1;
+}
+.topbar-tab-close:hover {
+  background: var(--hover-active);
+  color: var(--text);
+}
+.topbar-tab-close svg {
+  width: 13px;
+  height: 13px;
+}
+
+/* 拖拽排序视觉:源半透明、目标左右指示线(光标用 pointer:主操作是点击切换,拖拽由 HTML5 draggable 接管) */
+.topbar-tab.dragging {
+  opacity: 0.4;
+}
+/* 目标 tab 的左/右边线指示插入位置 */
+.topbar-tab.drag-over-before {
+  box-shadow: -2px 0 0 0 var(--accent);
+}
+.topbar-tab.drag-over-after {
+  box-shadow: 2px 0 0 0 var(--accent);
+}
 
 .topbar-tab-add {
+  position: relative; /* 移出 tabs 容器后需脱离 .topbar-drag(absolute z-index:0)遮挡 */
+  z-index: 1;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 28px;
   height: 28px;
+  margin-left: 6px; /* 与 tabs 容器右缘间距 */
+  margin-right: 16px; /* mac 离窗口右边缘 / win 离窗口控件,均不贴边 */
+  flex-shrink: 0;
   border: none;
   border-radius: var(--radius-sm);
   background: transparent;
@@ -248,7 +360,11 @@ body,
 /* ===== 侧栏 ===== */
 .sidebar {
   width: var(--sidebar-w);
-  flex-shrink: 0;
+  /* flex-shrink:1 — 窗口偏窄时侧栏主动收缩,把空间让给主内容区,
+     配合 .main-content 的 min-width,保证主区达到最小可读宽度而不溢出/不横向滚动。
+     宽窗口下侧栏仍按 --sidebar-w 正常显示,拖拽 clamp(180~320)不受影响。 */
+  flex-shrink: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   overflow-y: auto;
@@ -621,11 +737,16 @@ body,
 .main-content {
   position: relative;
   flex: 1;
+  /* 最小宽度:保证正文区可读(360px 减去 .milkdown 左右 padding 96px,正文区约 264px)。
+     配合 .sidebar flex-shrink:1,窗口窄时侧栏先收缩让位,主区保住 360px,
+     侧栏min(180)+主区360+padding16=556 ≤ 窗口最小宽度600,不溢出 → 不横向滚动。 */
+  min-width: 360px;
   display: flex;
   flex-direction: column;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius-card);
+  /* 仅上方圆角:卡片底部贴满界面底边,下圆角会被边缘裁掉一半显怪异,故下方取直角 */
+  border-radius: var(--radius-card) var(--radius-card) 0 0;
   box-shadow: var(--shadow-sm);
   overflow: hidden;
 }
@@ -704,7 +825,11 @@ body,
 .editor-wrap {
   position: relative; /* 让欢迎页覆盖层 absolute 相对它定位 */
   flex: 1;
-  overflow: auto;
+  /* 仅纵向滚动:主内容区禁止横向滚动条。横向溢出由内容自身换行
+     (overflow-wrap:anywhere)与各块局部 overflow:auto(代码块/表格/公式)吸收,
+     避免长串或窄窗口撑出横向滚动条。 */
+  overflow-y: auto;
+  overflow-x: hidden;
   background: var(--surface);
 }
 
@@ -713,7 +838,9 @@ body,
 }
 
 .editor-wrap .milkdown {
-  width: clamp(320px, 90%, 960px);
+  /* min(90%,960px):无下限,窄窗口下随容器收缩而非固定 320 撑出横向滚动。
+     与 overflow-x:hidden 配合,主区永不出现横向滚动条。 */
+  width: min(90%, 960px);
   margin: 0 auto;
   padding: 64px 48px 140px;
 }
