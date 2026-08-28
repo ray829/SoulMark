@@ -1,16 +1,25 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { MarkdownEditor, type EditorHandle } from "./components/Editor";
+import { Outline } from "./components/Outline";
 import { Sidebar } from "./components/Sidebar";
 import { Welcome } from "./components/Welcome";
 import { ContextMenu, type MenuItem } from "./components/ContextMenu";
 import { WindowControls } from "./components/WindowControls";
 import { ErrorBoundary } from "./components/ErrorBoundary";
+import { FloatingBall } from "./components/FloatingBall";
+import { ThemeToggleButton } from "./components/ThemeToggleButton";
 import { CloseIcon, FileMarkdown, PanelLeftIcon, PlusIcon } from "./components/icons";
 import { useFile } from "./hooks/useFile";
 import { useSidebarResize } from "./hooks/useSidebarResize";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
+import { useSettings } from "./hooks/useSettings";
+import { setShikiTheme } from "./components/editor-views/ShikiHighlightPlugin";
+import { setMermaidTheme } from "./components/editor-views/MermaidView";
 import { isWindows } from "./utils/platform";
 import { baseName } from "./utils/path";
+import { smoothScrollBy, smoothScrollTo } from "./utils/scroll";
 import "./App.css";
 
 function App() {
@@ -32,6 +41,33 @@ function App() {
     setSidebarCollapsed,
     onResizeStart,
   } = useSidebarResize();
+
+  // 阅读偏好:主题/字号/专注模式(localStorage 持久化)
+  const {
+    theme,
+    fontSize,
+    focusMode,
+    toggleTheme,
+    cycleFontSize,
+    toggleFocusMode,
+  } = useSettings();
+
+  // 主题变化:联动 Shiki 代码高亮 + Mermaid 图表主题
+  useEffect(() => {
+    const onThemeChange = (e: Event) => {
+      const resolved = (e as CustomEvent<"light" | "dark">).detail;
+      setShikiTheme(resolved);
+      setMermaidTheme(resolved);
+    };
+    window.addEventListener("soulmark:theme-change", onThemeChange);
+    // 初始:同步一次当前 data-theme(useSettings 已写入 DOM)
+    const current = document.documentElement.getAttribute("data-theme");
+    if (current === "dark" || current === "light") {
+      setShikiTheme(current);
+      setMermaidTheme(current);
+    }
+    return () => window.removeEventListener("soulmark:theme-change", onThemeChange);
+  }, []);
 
   const {
     tabs,
@@ -73,12 +109,54 @@ function App() {
     close: () => void closeFile(),
   });
 
+
+  // 双击 .md 用本应用打开:监听系统投递的文件路径,editor 就绪后调用 openByPath。
+  // 冷启动:Rust setup 已把路径存入 PendingFiles,此处 invoke 拉取;此时 editor 可能未就绪 → 暂存。
+  // 热启动:应用已运行,listen 收到 emit。两种都等 editor ready 才消费。
+  // openByPath 已自带去重与"无 rootDir 时以文件所在目录为根"逻辑,契合双击任意位置文件。
+  const editorReadyRef = useRef(false);
+  const pendingOpenRef = useRef<string[]>([]);
+  const consumeOpenFiles = useCallback(
+    (paths: string[]) => {
+      if (paths.length === 0) return;
+      if (editorReadyRef.current) {
+        for (const p of paths) void openByPath(p);
+      } else {
+        pendingOpenRef.current.push(...paths);
+      }
+    },
+    [openByPath],
+  );
+  const onEditorReady = useCallback(() => {
+    editorReadyRef.current = true;
+    const pending = pendingOpenRef.current;
+    if (pending.length > 0) {
+      pendingOpenRef.current = [];
+      for (const p of pending) void openByPath(p);
+    }
+  }, [openByPath]);
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    invoke<string[]>("opened_files")
+      .then(consumeOpenFiles)
+      .catch(() => {});
+    listen<string[]>("opened-files", (e) => consumeOpenFiles(e.payload))
+      .then((u) => {
+        unlisten = u;
+      })
+      .catch(() => {});
+    return () => {
+      unlisten?.();
+    };
+  }, [consumeOpenFiles]);
+
   // 顶部标签偏移:展开时对齐内容区左边缘(sidebar+16);
-  // mac 收起时贴近展开按钮右侧(mac 按钮右缘约108),win 收起时避开左侧展开按钮
+  // mac 收起时贴近展开按钮右侧(mac 按钮右缘约108),win 收起时避开左侧展开按钮。
+  // 收起态额外给主题切换按钮(32 宽 + 8 间距)让位:win 48→88,mac 118→156。
   const tabsMarginLeft = sidebarCollapsed
     ? isWindows
-      ? 48
-      : 118
+      ? 88
+      : 156
     : sidebarWidth + 16;
 
   // 点击编辑区内图片:打开放大预览
@@ -225,19 +303,30 @@ function App() {
 
   // 激活的 tab 滚进可视区:新建/切换 tab 时,若它在溢出区外则滚动它可见。
   // nearest:仅在必要时滚动,已可见的不动,不干扰用户手动滚动位置。
+  // 自实现 nearest 横向计算 + 平滑滚动(WKWebView 原生 scrollIntoView nearest 可能瞬移)。
   useEffect(() => {
     if (activeTabId == null) return;
-    const el = tabsScrollRef.current?.querySelector<HTMLElement>(
+    const container = tabsScrollRef.current;
+    const el = container?.querySelector<HTMLElement>(
       `.topbar-tab[data-tab-id="${activeTabId}"]`,
     );
-    el?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    if (!container || !el) return;
+    const cLeft = container.scrollLeft;
+    const cRight = cLeft + container.clientWidth;
+    const eLeft = el.offsetLeft;
+    const eRight = eLeft + el.offsetWidth;
+    let target = cLeft;
+    if (eLeft < cLeft) target = eLeft;
+    else if (eRight > cRight) target = eRight - container.clientWidth;
+    else return; // 已在可视区,nearest 不动
+    smoothScrollTo(container, target, { duration: 220 });
   }, [activeTabId]);
 
-  // 箭头点击:平滑滚动约一个大 tab 宽度
+  // 箭头点击:平滑滚动约一个大 tab 宽度(自实现 rAF,与编辑区跳转手感统一)
   const scrollTabs = useCallback((dir: 1 | -1) => {
     const el = tabsScrollRef.current;
     if (!el) return;
-    el.scrollBy({ left: dir * el.clientWidth * 0.8, behavior: "smooth" });
+    smoothScrollBy(el, dir * el.clientWidth * 0.8);
   }, []);
 
   // 编辑器空白区右键:保存 / 另存为。内容区(ProseMirror)内不拦截,保留浏览器粘贴/复制。
@@ -270,6 +359,13 @@ function App() {
   // 有 tab 就允许关闭当前(editor-header 的关闭按钮)
   const canClose = activeTabId !== null;
 
+  // 回到顶部:平滑滚动编辑器滚动容器(自实现 rAF,WKWebView 原生 smooth 不可靠)
+  const onScrollToTop = useCallback(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    smoothScrollTo(el, 0);
+  }, []);
+
   return (
     <div
       className={`app${sidebarCollapsed ? " sidebar-collapsed" : ""}`}
@@ -292,6 +388,12 @@ function App() {
         >
           <PanelLeftIcon className={sidebarCollapsed ? "flipped" : ""} />
         </button>
+        {/* 主题切换按钮:紧邻侧栏切换按钮右侧,点击圆形扩散切换 light/dark */}
+        <ThemeToggleButton
+          theme={theme}
+          onToggleTheme={toggleTheme}
+          mac={!isWindows}
+        />
         <div className="topbar-tabs-wrap">
           <div className="topbar-tabs" ref={tabsScrollRef}>
             {tabs.map((tab) => {
@@ -417,9 +519,11 @@ function App() {
                   ●
                 </span>
               )}
-              <span className="file-name" title={currentPath ?? ""}>
-                {fileName || "未打开文件"}
-              </span>
+              {fileName && (
+                <span className="file-name" title={currentPath ?? ""}>
+                  {fileName}
+                </span>
+              )}
             </div>
             {canClose && (
               <button
@@ -440,13 +544,29 @@ function App() {
             onClick={onEditorClick}
           >
             <ErrorBoundary>
-              <MarkdownEditor ref={editorRef} onChange={onMdChange} />
+              <MarkdownEditor ref={editorRef} onChange={onMdChange} onReady={onEditorReady} />
             </ErrorBoundary>
             {/* 无 tab,或当前为空白未命名未改时显示欢迎页(覆盖层) */}
             {(!activeTabId || (activeTab?.path === null && !activeTab.dirty)) && (
               <Welcome onOpenFile={() => void openFile()} onOpenFolder={() => void openFolder()} />
             )}
           </div>
+          {/* 文档大纲:右侧 Notion 风格横条目录,hover 展开显示标题文字。
+              标题超长时在原位横向滚动显示全文。无标题/无文档时不渲染。
+              放在 .main-content 下(非 editor-wrap 内):大纲为 position:fixed,
+              useOutline 走 scrollRef prop 查询,不依赖 DOM 父子,放外层更稳健。 */}
+          {activeTabId && <Outline scrollRef={wrapRef} />}
+          {/* 悬浮球工具按钮:定位在主内容区右下角,不随内容滚动 */}
+          <FloatingBall
+            scrollContainerRef={wrapRef}
+            onScrollToTop={onScrollToTop}
+            fontSize={fontSize}
+            onCycleFontSize={cycleFontSize}
+            focusMode={focusMode}
+            onToggleFocusMode={toggleFocusMode}
+            sidebarCollapsed={sidebarCollapsed}
+            onToggleSidebar={() => setSidebarCollapsed((v) => !v)}
+          />
         </main>
       </div>
 

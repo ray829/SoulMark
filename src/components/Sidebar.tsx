@@ -3,11 +3,10 @@ import type { MenuItem } from "./ContextMenu";
 import { TreeNode } from "./TreeNode";
 import { PromptDialog } from "./PromptDialog";
 import {
-  ChevronDown,
-  FileGeneric,
   FileMarkdown,
   FileOpenIcon,
   FolderOpenIcon,
+  PlusIcon,
   SearchIcon,
 } from "./icons";
 import {
@@ -19,7 +18,6 @@ import {
   type TreeCtx,
 } from "../hooks/useFileTree";
 import { baseName } from "../utils/path";
-import { isMac, modKey } from "../utils/platform";
 
 interface SidebarProps {
   rootDir: string | null;
@@ -165,47 +163,22 @@ export function Sidebar({
 
   return (
     <aside className="sidebar">
-      {/* 工作区头:头像 + 根目录名 + 下拉箭头(点击切换文件夹) */}
-      <button
-        className="nav-org-selector"
-        onClick={onOpenFolder}
-        title={rootDir ? `切换文件夹(当前:${rootDir})` : "打开文件夹"}
-      >
-        <span className="nav-org-avatar">S</span>
-        <span className="nav-org-name">{rootDir ? baseName(rootDir) : "Soul Mark"}</span>
-        <ChevronDown className="nav-org-chevron" />
-      </button>
-
-      {/* 搜索栏:⌘K 聚焦,实时过滤 md 文件 */}
-      <div className="nav-search">
-        <SearchIcon />
-        <input
-          ref={searchRef}
-          value={search}
-          placeholder="搜索..."
-          onChange={(e) => setSearch(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Escape") setSearch("");
-          }}
-        />
-        <span className="nav-search-kbd">{modKey}K</span>
-      </div>
-
-      {/* 快捷操作 */}
-      <button className="nav-item" onClick={onNewFile}>
-        <FileOpenIcon />
-        <span>新建文件</span>
-        <span className="nav-kbd">{modKey}N</span>
-      </button>
-      <button className="nav-item" onClick={onOpenFile}>
-        <FileGeneric />
-        <span>打开文件</span>
-        <span className="nav-kbd">{modKey}O</span>
-      </button>
-      <button className="nav-item" onClick={onOpenFolder}>
-        <FolderOpenIcon />
-        <span>打开文件夹</span>
-      </button>
+      {/* 搜索栏:⌘K 聚焦,实时过滤 md 文件。无 rootDir 时隐藏(搜索依赖文件夹)。 */}
+      {rootDir && (
+        <div className="nav-search">
+          <SearchIcon />
+          <input
+            ref={searchRef}
+            value={search}
+            placeholder="搜索..."
+            onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setSearch("");
+            }}
+          />
+          <span className="nav-search-kbd">⌘K</span>
+        </div>
+      )}
 
       {/* 搜索结果 / 文件树 */}
       {searching ? (
@@ -244,14 +217,40 @@ export function Sidebar({
         </div>
       )}
 
-      {/* 底部帮助 */}
-      <div className="nav-bottom">
-        <button
-          className="nav-help"
-          title={`快捷键:${modKey}N 新建 · ${modKey}O 打开 · ${modKey}S 保存 · ${modKey}${isMac ? "⇧" : "Shift"}S 另存为`}
-        >
-          ?
-        </button>
+      {/* 底部操作条:文件夹名(点击切换/打开文件夹) + 右侧新建/打开文件图标。
+          无 rootDir 时左侧变"打开文件夹"按钮,右侧图标置灰。 */}
+      <div className="sidebar-footer">
+        <div className="sidebar-footer-bar">
+          <button
+            className="sidebar-folder-name"
+            onClick={onOpenFolder}
+            title={rootDir ? `切换文件夹(当前:${rootDir})` : "打开文件夹"}
+          >
+            <FolderOpenIcon />
+            <span className="sidebar-folder-label">
+              {rootDir ? baseName(rootDir) : "打开文件夹"}
+            </span>
+          </button>
+          <div className="sidebar-footer-actions">
+            <button
+              className="sidebar-footer-btn"
+              onClick={onNewFile}
+              title="新建文件"
+              aria-label="新建文件"
+              disabled={!rootDir}
+            >
+              <PlusIcon />
+            </button>
+            <button
+              className="sidebar-footer-btn"
+              onClick={onOpenFile}
+              title="打开文件"
+              aria-label="打开文件"
+            >
+              <FileOpenIcon />
+            </button>
+          </div>
+        </div>
       </div>
 
       {dialog && <PromptDialog opts={dialog} onClose={() => setDialog(null)} />}

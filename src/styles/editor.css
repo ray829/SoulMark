@@ -5,7 +5,7 @@
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI",
     "PingFang SC", "Noto Sans SC", "Hiragino Sans GB", "Microsoft YaHei",
     sans-serif;
-  font-size: 16px;
+  font-size: var(--editor-font-size, 16px);
   line-height: 1.7;
   color: var(--text);
   background: var(--surface);
@@ -67,6 +67,14 @@
 .milkdown h6 {
   font-size: 0.9em;
   color: var(--text-secondary);
+}
+
+/* 标题滚动留白:点击大纲跳转时,标题停在视口顶部下方 12px 处,
+   紧贴 editor-header(在 editor-wrap 之外上方)底部下方留小呼吸空隙。
+   与 useOutline 的 SCROLL_OFFSET 一致:跳转停留位置 = 高亮判定阈值,
+   避免边界浮点误差导致高亮错位。 */
+.milkdown :is(h1, h2, h3, h4, h5, h6) {
+  scroll-margin-top: 12px;
 }
 
 .milkdown p {

@@ -96,10 +96,12 @@ export interface EditorHandle {
 interface EditorProps {
   initialMarkdown?: string;
   onChange?: () => void;
+  /** Milkdown 编辑器创建完成后回调一次(供"双击打开文件"等待 editor 就绪)。 */
+  onReady?: () => void;
 }
 
 const InnerEditor = forwardRef<EditorHandle, EditorProps>(function InnerEditor(
-  { initialMarkdown = "", onChange },
+  { initialMarkdown = "", onChange, onReady },
   ref,
 ) {
   const editorRef = useRef<Editor | null>(null);
@@ -164,6 +166,25 @@ const InnerEditor = forwardRef<EditorHandle, EditorProps>(function InnerEditor(
     obs.observe(root, { childList: true, subtree: true });
     return () => obs.disconnect();
   }, []);
+
+  // Milkdown editor.create() 异步完成:get() 首次非 null 即视为就绪,触发 onReady。
+  // 用 ref 去重保证只触发一次(onReady 引用变化 / strict mode 双调用均安全)。
+  // 供"双击 .md 冷启动打开"场景:拿到文件路径时编辑器可能尚未就绪,需等待。
+  const readyFiredRef = useRef(false);
+  useEffect(() => {
+    let raf = 0;
+    const check = () => {
+      if (readyFiredRef.current) return;
+      if (get()) {
+        readyFiredRef.current = true;
+        onReady?.();
+        return;
+      }
+      raf = requestAnimationFrame(check);
+    };
+    raf = requestAnimationFrame(check);
+    return () => cancelAnimationFrame(raf);
+  }, [get, onReady]);
 
   useImperativeHandle(
     ref,
@@ -278,6 +299,22 @@ const InnerEditor = forwardRef<EditorHandle, EditorProps>(function InnerEditor(
     }),
     [get],
   );
+
+  // 主题切换:重算 Shiki 代码块高亮。
+  // setShikiTheme 更新模块级 currentTheme 后派发事件,这里 dispatch 一个
+  // force-highlight 的 no-op transaction,触发插件 apply 重算 decoration。
+  useEffect(() => {
+    const onShikiTheme = () => {
+      const editor = get() ?? editorRef.current;
+      if (!editor) return;
+      editor.action((ctx) => {
+        const view = ctx.get(editorViewCtx);
+        view.dispatch(view.state.tr.setMeta("force-highlight", true));
+      });
+    };
+    window.addEventListener("soulmark:shiki-theme", onShikiTheme);
+    return () => window.removeEventListener("soulmark:shiki-theme", onShikiTheme);
+  }, [get]);
 
   return <Milkdown />;
 });

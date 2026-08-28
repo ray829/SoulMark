@@ -224,11 +224,13 @@ export function useFile(
     await openByPath(path);
   }, [openByPath]);
 
-  /** 打开文件夹:以所选目录为文件树根(不打开具体文件) */
-  const openFolder = useCallback(async () => {
+  /** 打开文件夹:以所选目录为文件树根(不打开具体文件)。
+   *  返回所选目录路径,用户取消时返回 null(供调用方据此做后续 UI 反馈)。 */
+  const openFolder = useCallback(async (): Promise<string | null> => {
     const dir = await open({ directory: true });
-    if (typeof dir !== "string") return;
+    if (typeof dir !== "string") return null;
     setRootDirBoth(dir);
+    return dir;
   }, [setRootDirBoth]);
 
   /** 保存当前 tab:有 path 直接写;无 path 弹 save dialog。Cmd+S 立即保存(绕 debounce)。 */

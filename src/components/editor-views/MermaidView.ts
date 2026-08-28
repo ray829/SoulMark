@@ -34,13 +34,28 @@ const mermaidSchema = $node("mermaid", () => ({
 /* 动态 import mermaid(包大,首屏无 mermaid 时不加载) */
 type MermaidModule = typeof import("mermaid");
 let mermaidMod: MermaidModule | null = null;
+let currentMermaidTheme: "default" | "dark" = "default";
+
 async function loadMermaid(): Promise<MermaidModule> {
   if (!mermaidMod) {
     const m = await import("mermaid");
-    m.default.initialize({ startOnLoad: false, theme: "default" });
+    m.default.initialize({ startOnLoad: false, theme: currentMermaidTheme });
     mermaidMod = m;
   }
   return mermaidMod;
+}
+
+/* 活跃 mermaid 实例:主题切换时全部重新渲染 */
+const activeViews = new Set<MermaidView>();
+
+/** 切换 Mermaid 主题。重新 initialize 并重渲染所有已显示的 mermaid 图。 */
+export function setMermaidTheme(resolved: "light" | "dark") {
+  currentMermaidTheme = resolved === "dark" ? "dark" : "default";
+  if (mermaidMod) {
+    mermaidMod.default.initialize({ startOnLoad: false, theme: currentMermaidTheme });
+    // 重新渲染所有活跃实例
+    for (const v of activeViews) v.rerender();
+  }
 }
 
 let idCounter = 0;
@@ -55,6 +70,7 @@ class MermaidView implements NodeView {
     this.node = node;
     this.dom = document.createElement("div");
     this.dom.className = "mermaid-block";
+    activeViews.add(this);
     void this.render();
   }
 
@@ -74,6 +90,11 @@ class MermaidView implements NodeView {
     }
   }
 
+  /** 主题切换时由 setMermaidTheme 调用,重新渲染 */
+  rerender(): void {
+    if (!this.cancelled) void this.render();
+  }
+
   update(newNode: Node): boolean {
     if (newNode.type !== this.node.type) return false;
     const changed = newNode.textContent !== this.node.textContent;
@@ -88,6 +109,7 @@ class MermaidView implements NodeView {
 
   destroy(): void {
     this.cancelled = true;
+    activeViews.delete(this);
   }
 }
 

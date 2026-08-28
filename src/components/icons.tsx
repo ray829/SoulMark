@@ -118,3 +118,75 @@ export function EmptyMark(props: IconProps) {
     </svg>
   );
 }
+
+/* ===== 悬浮球操作图标 ===== */
+
+/** 回到顶部:向上箭头 */
+export function ArrowUpIcon(props: IconProps) {
+  return (
+    <svg {...props} {...ICON_ATTRS} strokeWidth={2}>
+      <path d="M12 19V5" />
+      <path d="M5 12l7-7 7 7" />
+    </svg>
+  );
+}
+
+/** 浅色模式:太阳 */
+export function SunIcon(props: IconProps) {
+  return (
+    <svg {...props} {...ICON_ATTRS} strokeWidth={2}>
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
+    </svg>
+  );
+}
+
+/** 暗色模式:月亮 */
+export function MoonIcon(props: IconProps) {
+  return (
+    <svg {...props} {...ICON_ATTRS} strokeWidth={2}>
+      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+    </svg>
+  );
+}
+
+/** 跟随系统:显示器 */
+export function MonitorIcon(props: IconProps) {
+  return (
+    <svg {...props} {...ICON_ATTRS} strokeWidth={2}>
+      <rect x="2" y="3" width="20" height="14" rx="2" />
+      <path d="M8 21h8M12 17v4" />
+    </svg>
+  );
+}
+
+/** 字号:大写 A */
+export function TypeIcon(props: IconProps) {
+  return (
+    <svg {...props} {...ICON_ATTRS} strokeWidth={2}>
+      <path d="M4 7V5h16v2" />
+      <path d="M9 19h6" />
+      <path d="M12 5v14" />
+    </svg>
+  );
+}
+
+/** 专注模式:内容居中聚焦 */
+export function FocusIcon(props: IconProps) {
+  return (
+    <svg {...props} {...ICON_ATTRS} strokeWidth={2}>
+      <path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3" />
+      <path d="M12 8v8" />
+    </svg>
+  );
+}
+
+/** 设置/工具:齿轮(悬浮球主球图标) */
+export function SettingsIcon(props: IconProps) {
+  return (
+    <svg {...props} {...ICON_ATTRS} strokeWidth={2}>
+      <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  );
+}

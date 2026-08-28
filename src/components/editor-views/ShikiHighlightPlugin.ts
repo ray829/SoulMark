@@ -18,12 +18,13 @@ import type { Node as PmNode } from "@milkdown/kit/prose/model";
 import type { Ctx } from "@milkdown/kit/ctx";
 
 /* Shiki highlighter 单例:首次 await 加载主题 + 语言包,之后同步复用。
-   主题用 github-light,配合应用浅色 UI(github-dark 的 token 色在浅底上不可读)。 */
+   预加载 github-light / github-dark 双主题,运行时按 currentTheme 切换,
+   配合应用 data-theme(暗色底用 github-dark,token 色才可读)。 */
 let hlPromise: Promise<Highlighter> | null = null;
 function getHL(): Promise<Highlighter> {
   if (!hlPromise) {
     hlPromise = createHighlighter({
-      themes: ["github-light"],
+      themes: ["github-light", "github-dark"],
       langs: [
         "javascript", "typescript", "jsx", "tsx", "python", "go", "rust",
         "json", "bash", "markdown", "sql", "css", "html", "yaml", "java",
@@ -32,6 +33,23 @@ function getHL(): Promise<Highlighter> {
     });
   }
   return hlPromise;
+}
+
+/* 当前高亮主题(模块级):由 setShikiTheme 切换。
+   初始读取 <html data-theme>,默认 light。 */
+let currentTheme: "github-light" | "github-dark" = "github-light";
+
+/** 切换 Shiki 高亮主题并强制重算所有代码块 decoration。
+    App 在主题变化时调用;resolved 为实际明暗模式。 */
+export function setShikiTheme(resolved: "light" | "dark") {
+  currentTheme = resolved === "dark" ? "github-dark" : "github-light";
+  // 通知所有活跃编辑器实例重算:监听该事件并 dispatch force-highlight
+  window.dispatchEvent(new CustomEvent("soulmark:shiki-theme"));
+}
+
+/** 读取当前高亮主题名 */
+export function getShikiTheme() {
+  return currentTheme;
 }
 
 const highlightKey = new PluginKey("shiki-highlight");
@@ -66,7 +84,7 @@ function buildDecorations(
       // lang 已由 getLoadedLanguages() 运行时校验,断言为 shiki 期望的字面量联合类型
       const { tokens } = hl.codeToTokens(text, {
         lang: lang as never,
-        theme: "github-light",
+        theme: currentTheme,
       });
       for (const line of tokens) {
         for (const token of line) {
@@ -91,8 +109,8 @@ function buildDecorations(
 }
 
 /* $proseAsync:先 await highlighter 就绪,再返回 Plugin。
-   插件 state 在 init 与 docChanged 时重算 decoration;非 docChanged
-   (选区变化)直接返回原 value,避免对 26+ 个代码块做无谓 map/重算。 */
+   插件 state 在 init 与 docChanged 时重算 decoration;主题切换时由外部
+   dispatch force-highlight meta 触发重算;选区变化直接复用,避免无谓重算。 */
 export const shikiHighlightPlugin = $proseAsync(async (ctx) => {
   const hl = await getHL();
   return new Plugin({
@@ -100,7 +118,7 @@ export const shikiHighlightPlugin = $proseAsync(async (ctx) => {
     state: {
       init: (_, { doc }) => buildDecorations(ctx, doc, hl),
       apply: (tr, value) => {
-        if (tr.docChanged) {
+        if (tr.docChanged || tr.getMeta("force-highlight")) {
           return buildDecorations(ctx, tr.doc, hl);
         }
         // 选区/存储标记变化:decoration 位置不变,直接复用

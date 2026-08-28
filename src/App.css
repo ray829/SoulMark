@@ -41,14 +41,66 @@
   --shadow-menu: 0 4px 16px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.06);
   --shadow-modal: 0 8px 32px rgba(0, 0, 0, 0.16);
 
+  /* 滚动条 */
+  --scrollbar-thumb: #cdd2d8;
+  --scrollbar-thumb-hover: #aeb4bb;
+
+  /* 大纲悬浮面板半透明背景:展开(hover)时与主内容区分。
+     折叠态透明,仅刻度。用 rgba 而非 color-mix 以兼容旧 webview。 */
+  --surface-translucent: rgba(255, 255, 255, 0.95);
+  --outline-blur: 6px;
+
   /* 尺寸 */
   --topbar-h: 52px;
+  --editor-header-h: 48px;
   --sidebar-w: 264px;
 
   /* 动画 */
   --t-fast: 100ms;
   --t-side: 180ms;
   --ease: cubic-bezier(0.4, 0, 0.2, 1);
+  /* 弹性回弹:用于悬浮球扇形展开/收起,带轻微 overshoot */
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* ===== 暗色主题:覆盖 token =====
+   通过 <html data-theme="dark"> 激活(useSettings)。
+   全组件经 var() 引用,无需逐个改样式。 */
+[data-theme="dark"] {
+  --bg: #1a1d21;
+  --sidebar-bg: #1a1d21;
+  --surface: #23272e;
+  --tab-bg: #2d323a;
+  --tab-bg-hover: #353b44;
+
+  --border: #343a42;
+  --border-hover: #444c56;
+
+  --text: #e6e8eb;
+  --text-secondary: #9ba3ad;
+  --text-tertiary: #6b7280;
+
+  --accent: #4b8bf5;
+  --accent-bg: rgba(75, 139, 245, 0.12);
+
+  /* 暗色底上黑色半透明不可见,改用白色半透明 */
+  --hover: rgba(255, 255, 255, 0.06);
+  --hover-active: rgba(255, 255, 255, 0.1);
+  --active-bg: #2d323a;
+  --active-fg: #e6e8eb;
+
+  --warning: #e0b341;
+  --danger: #f47174;
+  --danger-bg: rgba(244, 113, 116, 0.12);
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-menu: 0 4px 16px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.3);
+  --shadow-modal: 0 8px 32px rgba(0, 0, 0, 0.5);
+
+  --scrollbar-thumb: #4a5058;
+  --scrollbar-thumb-hover: #5c636d;
+
+  --surface-translucent: rgba(35, 39, 46, 0.92);
 }
 
 /* ===== Reset ===== */
@@ -151,6 +203,68 @@ body,
 /* 收起态:图标翻转指向右侧 */
 .topbar-toggle-sidebar svg.flipped {
   transform: scaleX(-1);
+}
+
+/* ===== 主题切换按钮:太阳/月亮 SVG 图标 =====
+   与 .topbar-toggle-sidebar 同一套样式(30×30 方形圆角、16×16 线条 SVG、hover 灰底)。
+   形态由当前主题决定(浅色=太阳 SunIcon,暗色=月亮 MoonIcon),点击触发圆形扩散切换主题。
+   定位紧邻侧栏切换按钮右侧:win left:48(=10+30+8),mac left:116(=78+30+8 避红绿灯)。 */
+.theme-toggle {
+  position: absolute;
+  left: 48px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+
+/* mac 下避开原生红绿灯,与 .topbar-toggle-sidebar.mac 同步左移 */
+.theme-toggle.mac {
+  left: 116px;
+}
+
+.theme-toggle:hover {
+  background: var(--hover-active);
+  color: var(--text);
+}
+
+.theme-toggle svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* 图标切换过渡:太阳/月亮 SVG 叠放,点击切换主题时交叉淡入+旋转。
+   当前主题图标带 [data-active] 可见,另一图标淡出旋转。
+   图标样式与颜色不变(stroke=currentColor 跟随按钮)。 */
+.theme-toggle-icon-stack {
+  position: relative;
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+.theme-toggle-icon-stack svg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 16px;
+  height: 16px;
+  opacity: 0;
+  transform: rotate(-90deg) scale(0.6);
+  transition: opacity 0.28s var(--ease), transform 0.4s var(--ease);
+}
+.theme-toggle-icon-stack svg[data-active] {
+  opacity: 1;
+  transform: rotate(0deg) scale(1);
 }
 
 /* 标签与主内容区左对齐:偏移量由 JS(--tabs-ml)控制,展开=内容区左边缘,mac 收起保持不变,win 收起避开展开按钮 */
@@ -400,57 +514,97 @@ body,
   background: var(--text-tertiary);
 }
 
-/* 工作区头 — 头像 + 名称 + 下拉箭头 */
-.nav-org-selector {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 10px 8px;
-  border: none;
-  background: transparent;
-  font-family: inherit;
-  text-align: left;
-  cursor: pointer;
-  border-radius: var(--radius);
-  transition: background var(--t-fast) var(--ease);
-}
-
-.nav-org-selector:hover {
-  background: var(--hover);
-}
-
-.nav-org-avatar {
-  width: 26px;
-  height: 26px;
-  border-radius: 50%;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  color: var(--text-secondary);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 12px;
-  font-weight: 600;
+/* ===== 侧栏底部操作条 =====
+   文件夹名(点击切换/打开文件夹) + 右侧新建文件 / 打开文件图标。
+   hover 整条抬升高亮;无 rootDir 时左侧变"打开文件夹"按钮、右侧图标置灰。
+   margin-top:auto 把它推到侧栏底部。 */
+.sidebar-footer {
+  margin-top: auto;
+  padding: 8px 8px 12px;
   flex-shrink: 0;
 }
-
-.nav-org-name {
+.sidebar-footer-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 34px;
+  padding: 0 8px;
+  border-radius: var(--radius);
+  border: 1px solid transparent;
+  transition: background var(--t-fast) var(--ease),
+    border-color var(--t-fast) var(--ease);
+}
+.sidebar-footer-bar:hover {
+  background: var(--hover);
+  border-color: var(--border);
+}
+/* 文件夹名(可点击切换目录):截断 + tooltip 全路径 */
+.sidebar-folder-name {
   flex: 1;
   min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  letter-spacing: -0.01em;
+  cursor: pointer;
+  overflow: hidden;
+}
+.sidebar-folder-name:hover {
+  color: var(--text);
+}
+.sidebar-folder-name svg {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  opacity: 0.8;
+}
+.sidebar-folder-label {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text);
-  letter-spacing: -0.01em;
 }
-
-.nav-org-chevron {
+/* 右侧操作图标:新建文件 / 打开文件 */
+.sidebar-footer-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.sidebar-footer-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+.sidebar-footer-btn:hover {
+  background: var(--hover-active);
+  color: var(--text);
+}
+.sidebar-footer-btn svg {
   width: 15px;
   height: 15px;
+}
+.sidebar-footer-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.sidebar-footer-btn:disabled:hover {
+  background: transparent;
   color: var(--text-tertiary);
-  flex-shrink: 0;
 }
 
 /* 搜索栏 — 白底圆角输入 + ⌘K 键位 */
@@ -507,51 +661,6 @@ body,
   flex-shrink: 0;
 }
 
-/* 导航项 — 图标 + 文字 + 键位,圆角悬浮态 */
-.nav-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: calc(100% - 16px);
-  margin: 0 8px;
-  padding: 7px 10px;
-  border: none;
-  background: transparent;
-  border-radius: var(--radius);
-  color: var(--text-secondary);
-  font-size: 14px;
-  font-family: inherit;
-  cursor: pointer;
-  text-align: left;
-  transition: all var(--t-fast) var(--ease);
-  letter-spacing: -0.005em;
-}
-
-.nav-item:hover {
-  background: var(--hover);
-  color: var(--text);
-}
-
-.nav-item svg {
-  width: 16px;
-  height: 16px;
-  flex-shrink: 0;
-  opacity: 0.85;
-}
-
-.nav-item .nav-kbd {
-  margin-left: auto;
-  display: inline-flex;
-  align-items: center;
-  padding: 1px 5px;
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  background: var(--surface);
-  color: var(--text-tertiary);
-  font-size: 11px;
-  font-family: ui-monospace, "SF Mono", "Menlo", monospace;
-}
-
 /* 分组 */
 .nav-section {
   padding: 10px 0 4px;
@@ -590,34 +699,6 @@ body,
   line-height: 1.6;
   letter-spacing: -0.01em;
   max-width: 180px;
-}
-
-/* 侧栏底部帮助 */
-.nav-bottom {
-  margin-top: auto;
-  padding: 12px 14px;
-}
-
-.nav-help {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  border: 1px solid var(--border-hover);
-  background: transparent;
-  color: var(--text-tertiary);
-  cursor: help;
-  font-size: 12px;
-  font-weight: 500;
-  font-family: inherit;
-  transition: all var(--t-fast) var(--ease);
-}
-
-.nav-help:hover {
-  border-color: var(--text-secondary);
-  color: var(--text-secondary);
 }
 
 /* ===== 文件树 ===== */
@@ -755,7 +836,7 @@ body,
 .editor-header {
   display: flex;
   align-items: center;
-  height: 48px;
+  height: var(--editor-header-h);
   padding: 0 16px;
   border-bottom: 1px solid var(--border);
   -webkit-user-select: none;
@@ -825,6 +906,9 @@ body,
 .editor-wrap {
   position: relative; /* 让欢迎页覆盖层 absolute 相对它定位 */
   flex: 1;
+  /* 右侧留出大纲空间(--outline-reserve,大纲显示时 250px、隐藏时 0)。
+     大纲为 position:fixed,需由文档区让出宽度避免正文被遮挡。 */
+  padding-right: var(--outline-reserve, 0px);
   /* 仅纵向滚动:主内容区禁止横向滚动条。横向溢出由内容自身换行
      (overflow-wrap:anywhere)与各块局部 overflow:auto(代码块/表格/公式)吸收,
      避免长串或窄窗口撑出横向滚动条。 */
@@ -838,11 +922,14 @@ body,
 }
 
 .editor-wrap .milkdown {
-  /* min(90%,960px):无下限,窄窗口下随容器收缩而非固定 320 撑出横向滚动。
-     与 overflow-x:hidden 配合,主区永不出现横向滚动条。 */
-  width: min(90%, 960px);
+  /* 内容区主体:居中阅读。
+     max-width 提至 1080px(原 960),整体内容区扩大。
+     min(95%, 1080px):窄窗口随容器收缩不撑出横向滚动;宽窗口最宽 1080。 */
+  width: min(95%, 1080px);
   margin: 0 auto;
-  padding: 64px 48px 140px;
+  /* 底部基础阅读留白(140px)+ 动态补白(让最末标题能滚到顶部,参考 Notion)。
+     动态补白由 useOutline 计算、经 --outline-pad-bottom 变量写入。 */
+  padding: 64px 48px calc(140px + var(--outline-pad-bottom, 0px));
 }
 
 /* ===== 右键菜单 ===== */
@@ -972,14 +1059,14 @@ body,
 }
 
 .modal-btn.primary {
-  background: var(--text);
-  border-color: var(--text);
+  background: var(--accent);
+  border-color: var(--accent);
   color: #fff;
 }
 
 .modal-btn.primary:hover {
-  background: #333;
-  border-color: #333;
+  filter: brightness(0.93);
+  border-color: var(--accent);
 }
 
 /* ===== 欢迎页 / 空状态 ===== */
@@ -1012,127 +1099,114 @@ body,
   opacity: 0.4;
 }
 
-.welcome-title {
-  font-size: 18px;
-  font-weight: 600;
-  letter-spacing: -0.02em;
-  color: var(--text);
-}
 
-.welcome-slogan {
-  font-size: 13px;
+/* ===== 打盹小猫 — 空状态视觉锚点 =====
+   由用户提供的 styled-components 版改写为纯 CSS。
+   颜色用 currentColor → var(--text),随主题切换;暗色底可见。
+   动画:尾巴轻摆 + ZZZ 闪烁;prefers-reduced-motion 下静止。 */
+.sleeping-cat {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 8px;
+}
+/* 猫 + 墙的纵向容器:猫在上,墙贴底 */
+.cat-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.cat-container {
+  position: relative;
+  z-index: 1; /* 猫整组(含尾巴)在墙之上,避免尾巴被墙遮挡 */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.cat-body {
+  width: 80px;
+  color: var(--text);
+  opacity: 0.85;
+}
+.cat-tail {
+  position: absolute;
+  width: 17px;
+  top: 50%;
+  color: var(--text);
+  opacity: 0.85;
+  transform-origin: top center;
+  /* cubic-bezier 端点自带减速,全程连续无停顿,alternate 反向平滑衔接 */
+  animation: cat-tail 1.8s cubic-bezier(0.45, 0, 0.55, 1) infinite alternate;
+}
+/* 尾巴摆动:只设起止两点,缓动函数处理端点减速,无任何中间停顿帧(避免"卡段") */
+@keyframes cat-tail {
+  0% {
+    transform: rotateZ(28deg);
+  }
+  100% {
+    transform: rotateZ(-28deg);
+  }
+}
+.cat-zzz {
+  display: flex;
+  flex-direction: column;
+  width: 50px;
+  position: absolute;
+  margin: 0 0 100px 120px;
+}
+.cat-zzz-big,
+.cat-zzz-sm {
+  color: var(--text);
+  font-weight: 700;
+  animation: cat-zzz 2s linear infinite;
+}
+.cat-zzz-big {
+  font-size: 25px;
+  margin-left: 10px;
+  animation-duration: 2.3s;
+}
+.cat-zzz-sm {
+  font-size: 15px;
+}
+.cat-wall {
+  width: 240px;
+  /* 墙在猫之下:z-index 0,猫整组 z-index 1。尾巴溢出到墙区域时仍在墙之上。 */
+  position: relative;
+  z-index: 0;
   color: var(--text-tertiary);
-  letter-spacing: -0.01em;
+  opacity: 0.4;
+  stroke: currentColor;
+  stroke-width: 6;
+  stroke-linecap: round;
+}
+@keyframes cat-zzz {
+  0% {
+    color: transparent;
+  }
+  50% {
+    color: var(--text);
+  }
+  100% {
+    color: transparent;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cat-tail {
+    animation: none;
+    transform: rotateZ(8deg);
+  }
+  .cat-zzz-big,
+  .cat-zzz-sm {
+    animation: none;
+    color: var(--text-tertiary);
+  }
 }
 
 .welcome-actions {
   display: flex;
   gap: 8px;
   margin-top: 6px;
-}
-
-.welcome-recents,
-.welcome-shortcuts {
-  width: 100%;
-  max-width: 400px;
-  margin-top: 12px;
-  text-align: left;
-}
-
-.welcome-section-title {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-tertiary);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  margin-bottom: 8px;
-}
-
-.welcome-recent-list {
-  list-style: none;
-}
-
-.welcome-recent-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 8px 10px;
-  border: none;
-  border-radius: var(--radius);
-  background: transparent;
-  color: var(--text);
-  font-family: inherit;
-  text-align: left;
-  cursor: pointer;
-  transition: background var(--t-fast) var(--ease);
-}
-
-.welcome-recent-item:hover {
-  background: var(--hover);
-}
-
-.welcome-recent-icon {
-  width: 16px;
-  height: 16px;
-  flex-shrink: 0;
-  color: var(--text-tertiary);
-}
-
-.welcome-recent-icon svg {
-  width: 16px;
-  height: 16px;
-  display: block;
-}
-
-.welcome-recent-meta {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-
-.welcome-recent-name {
-  font-size: 13px;
-  color: var(--text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.welcome-recent-path {
-  font-size: 11px;
-  color: var(--text-tertiary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.welcome-shortcuts {
-  padding: 14px 16px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-}
-
-.welcome-shortcut-list {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.welcome-shortcut {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 0;
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-
-.welcome-shortcut span {
-  letter-spacing: -0.01em;
 }
 
 /* 通用按钮 */
@@ -1156,30 +1230,14 @@ body,
 }
 
 .sidebar-btn.primary {
-  background: var(--text);
-  border-color: var(--text);
+  background: var(--accent);
+  border-color: var(--accent);
   color: #fff;
 }
 
 .sidebar-btn.primary:hover {
-  background: #333;
-  border-color: #333;
-}
-
-/* 通用键位标签 */
-.kbd {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 20px;
-  padding: 1px 6px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-  color: var(--text-secondary);
-  font-size: 11px;
-  font-family: ui-monospace, "SF Mono", "Menlo", monospace;
-  line-height: 1.4;
+  filter: brightness(0.93);
+  border-color: var(--accent);
 }
 
 /* ===== 滚动条 ===== */
@@ -1196,7 +1254,7 @@ body,
 
 .editor-wrap::-webkit-scrollbar-thumb,
 .sidebar::-webkit-scrollbar-thumb {
-  background: #cdd2d8;
+  background: var(--scrollbar-thumb);
   border-radius: 3px;
   border: 1px solid transparent;
   background-clip: content-box;
@@ -1204,14 +1262,14 @@ body,
 
 .editor-wrap::-webkit-scrollbar-thumb:hover,
 .sidebar::-webkit-scrollbar-thumb:hover {
-  background: #aeb4bb;
+  background: var(--scrollbar-thumb-hover);
   background-clip: content-box;
 }
 
 .editor-wrap,
 .sidebar {
   scrollbar-width: thin;
-  scrollbar-color: #cdd2d8 transparent;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
 }
 
 /* 尊重用户的"减少动画"偏好 */
@@ -1223,3 +1281,518 @@ body,
     animation-duration: 0s !important;
   }
 }
+
+/* ===== 主题切换:圆形扩散/收回过渡(View Transitions API) =====
+   点击主题按钮切换主题,圆形从按钮中心扩散或收回:
+   - 进入暗色(light→dark):新视图(暗色)从圆心扩散覆盖旧视图(亮色)— 展开
+   - 退出暗色(dark→light):旧视图(暗色)从全屏收缩回圆心,露出新视图(亮色)— 收回
+   圆心 --theme-tx/--theme-ty 由 ThemeToggleButton 点击时写入(按钮几何中心,视口坐标)。
+   方向标记 data-theme-dir 由点击时写入(enter-dark / leave-dark),动画结束后清除。
+   不支持 startViewTransition 的 webview 直接切换(无动画)。 */
+
+/* 默认(进入暗色):新视图扩散,旧视图不动在下 */
+::view-transition-old(root) {
+  animation: none;
+  z-index: 0;
+}
+::view-transition-new(root) {
+  animation: theme-reveal 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 1;
+}
+
+/* 退出暗色(dark→light):旧视图(暗色)收缩,露出新视图(亮色)。
+   注意:属性必须与 ::view-transition-old 同属一个元素(:root)——
+   带空格的后代选择器匹配不到伪元素,会落回默认扩散。 */
+:root[data-theme-dir="leave-dark"]::view-transition-old(root) {
+  animation: theme-contract 0.5s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  z-index: 1;
+}
+:root[data-theme-dir="leave-dark"]::view-transition-new(root) {
+  animation: none;
+  z-index: 0;
+}
+
+@keyframes theme-reveal {
+  from {
+    clip-path: circle(0% at var(--theme-tx, 50%) var(--theme-ty, 50%));
+  }
+  to {
+    clip-path: circle(150% at var(--theme-tx, 50%) var(--theme-ty, 50%));
+  }
+}
+@keyframes theme-contract {
+  from {
+    clip-path: circle(150% at var(--theme-tx, 50%) var(--theme-ty, 50%));
+  }
+  to {
+    clip-path: circle(0% at var(--theme-tx, 50%) var(--theme-ty, 50%));
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation: none;
+  }
+}
+
+/* ===== 专注模式:隐藏侧栏与标签栏,主内容区全宽最大化阅读 =====
+   由 useSettings 给 .app 加 .focus-mode class。 */
+.app.focus-mode .sidebar,
+.app.focus-mode .topbar-tabs-wrap,
+.app.focus-mode .topbar-tab-add,
+.app.focus-mode .sidebar-resizer {
+  display: none;
+}
+.app.focus-mode .app-body {
+  padding-left: 0;
+}
+.app.focus-mode .topbar-toggle-sidebar {
+  opacity: 0.5;
+}
+
+/* ===== 悬浮球工具按钮 =====
+   定位在主内容区(.main-content)右下角,不随内容滚动。
+   主球 48px 圆形(齿轮图标:hover 旋转 60°,按住持续旋转);
+   展开后子按钮沿纵向向上贝塞尔弹出,从下到上错峰;
+   回到顶部为独立按钮,常驻主球上方,滚动超阈值时贝塞尔弹出。
+   子项为纯圆形图标按钮,hover ~0.9s 后显示文字 tooltip。 */
+.fab {
+  position: absolute;
+  right: 20px;
+  bottom: 20px;
+  z-index: 50;
+}
+
+/* 主球 */
+.fab-main {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow var(--t-fast) var(--ease),
+    transform var(--t-side) var(--ease-spring),
+    background var(--t-fast) var(--ease),
+    color var(--t-fast) var(--ease);
+  -webkit-user-select: none;
+  user-select: none;
+  z-index: 3;
+}
+.fab-main:hover,
+.fab-main[data-open="true"] {
+  box-shadow: var(--shadow-menu);
+  background: var(--hover-active);
+  color: var(--text);
+}
+/* 展开时主球轻微缩放 morph */
+.fab-main[data-open="true"] {
+  transform: scale(0.9);
+}
+.fab-main-icon {
+  display: flex;
+}
+/* 齿轮:hover/展开旋转 60°,按住持续旋转(参考设置按钮交互) */
+.fab-main svg {
+  width: 22px;
+  height: 22px;
+  transition: transform 0.4s ease-in;
+}
+.fab-main:hover .fab-main-icon svg,
+.fab-main[data-open="true"] .fab-main-icon svg {
+  transform: rotate(60deg);
+}
+.fab-main:active .fab-main-icon svg {
+  animation: fab-rot 1s linear infinite;
+}
+@keyframes fab-rot {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 子菜单容器:0 尺寸坐标原点,对齐主球圆心(主球 48px → 半径 24px)。
+   始终渲染(不 display:none),使收起时按钮也能动画归位。 */
+.fab-menu {
+  position: absolute;
+  right: 24px;
+  bottom: 24px;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+/* hover 桥接:展开时填充主球与菜单项间的空白垂直通道,
+   使鼠标从主球移向菜单项时不会因穿越间隙触发 close。
+   收起时 pointer-events:none 不干扰;展开时 auto 接管间隙。
+   宽度与主球一致居中,高度覆盖到最远菜单项。 */
+.fab-bridge {
+  position: absolute;
+  right: 0;
+  bottom: 48px;
+  width: 48px;
+  height: var(--bridge-h);
+  pointer-events: none;
+  z-index: 1;
+}
+.fab[data-open="true"] .fab-bridge {
+  pointer-events: auto;
+}
+
+/* 单个子项:纯圆形图标按钮,absolute 定位到纵向坐标(由 --ty 驱动) */
+.fab-item {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: var(--shadow-menu);
+  z-index: 2;
+  /* 收起态:缩回主球圆心,透明,不可交互 */
+  transform: translate(50%, 50%) scale(0.2);
+  opacity: 0;
+  pointer-events: none;
+  transition: transform var(--t-side) var(--ease-spring),
+    opacity var(--t-side) var(--ease),
+    background var(--t-fast) var(--ease),
+    color var(--t-fast) var(--ease),
+    border-color var(--t-fast) var(--ease);
+}
+.fab-item svg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+/* 展开态:向上移动到纵向坐标 + 弹性放大(贝塞尔回弹) */
+.fab[data-open="true"] .fab-item {
+  transform: translate(50%, calc(50% + var(--ty))) scale(1);
+  opacity: 1;
+  pointer-events: auto;
+}
+/* 错峰延迟:从下(靠近主球)到上依次弹出 */
+.fab[data-open="true"] .fab-item:nth-child(1) {
+  transition-delay: 0ms;
+}
+.fab[data-open="true"] .fab-item:nth-child(2) {
+  transition-delay: 50ms;
+}
+.fab[data-open="true"] .fab-item:nth-child(3) {
+  transition-delay: 100ms;
+}
+.fab[data-open="true"] .fab-item:nth-child(4) {
+  transition-delay: 150ms;
+}
+.fab-item:hover {
+  background: var(--hover-active);
+  color: var(--text);
+  border-color: var(--border-hover);
+}
+
+/* 回到顶部:独立按钮,常驻主球上方(中心对齐主球圆心),
+   滚动超阈值时贝塞尔弹出。不参与菜单展开。 */
+.fab-top {
+  position: absolute;
+  right: 5px;
+  bottom: 5px;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: var(--shadow-menu);
+  z-index: 2;
+  transform: translateY(0) scale(0.2);
+  opacity: 0;
+  pointer-events: none;
+  transition: transform var(--t-side) var(--ease-spring),
+    opacity var(--t-fast) var(--ease),
+    background var(--t-fast) var(--ease),
+    color var(--t-fast) var(--ease),
+    border-color var(--t-fast) var(--ease);
+}
+.fab-top svg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+.fab-top[data-show="true"] {
+  transform: translateY(var(--top-ty)) scale(1);
+  opacity: 1;
+  pointer-events: auto;
+}
+.fab-top:hover {
+  background: var(--hover-active);
+  color: var(--text);
+  border-color: var(--border-hover);
+}
+
+/* tooltip:按钮左侧,hover/延迟后淡入 */
+.fab-tip {
+  position: absolute;
+  right: calc(100% + 10px);
+  top: 50%;
+  transform: translateY(-50%);
+  white-space: nowrap;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-menu);
+  font-size: 12px;
+  line-height: 1;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--t-fast) var(--ease);
+}
+.fab-item .fab-tip[data-show="true"] {
+  opacity: 1;
+}
+/* 菜单收起时不显示子项 tooltip */
+.fab:not([data-open="true"]) .fab-item .fab-tip {
+  opacity: 0 !important;
+}
+/* 回到顶部 tooltip:hover 显示,未弹出时不显示 */
+.fab-top:hover .fab-tip {
+  opacity: 1;
+}
+.fab-top:not([data-show="true"]) .fab-tip {
+  opacity: 0 !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .fab-main,
+  .fab-main svg,
+  .fab-item,
+  .fab-top,
+  .fab-tip {
+    transition-duration: 0s;
+    animation-duration: 0s;
+  }
+}
+
+/* ===== 文档大纲 — 刻度尺 + hover 浮层(解耦,零抖动) =====
+   刻度尺(.outline-ruler)常驻、几何恒定;hover 时浮层(.outline-float)在其左侧
+   fade-in 显示文字。两层几何独立:刻度尺不参与任何 hover 过渡 → 刻度线无位移抖动。
+   刻度尺固定高度(阅读区 60%)、flex 均分行,永不滚动;active 仅改色不改几何。
+   浮层可滚,active 跟随只在浮层内进行,不惊动刻度尺。 */
+.outline-root {
+  position: fixed;
+  right: 14px;
+  top: calc((var(--topbar-h) + var(--editor-header-h) + 100dvh) / 2);
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  /* 封顶高度 = 阅读区 60%:标题少时随内容伸缩(不占满)、多时封顶可滚。
+     刻度尺行高固定 → 刻度线间距稳定不压缩;超顶时刻度尺自身滚动。 */
+  max-height: calc((100dvh - var(--topbar-h) - var(--editor-header-h)) * 0.6);
+  z-index: 10;
+}
+
+/* 刻度尺:常驻窄条,几何恒定(无 transition)。鸟瞰模式——所有刻度 flex 均分
+   显示(保持全文结构感知 + 阅读位置),常态不滚动;极长文档行高压破 min-height
+   时才滚动兜底。active 仅靠刻度改色 + 发光强调,不加整行背景。 */
+.outline-ruler {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  width: 16px;
+  max-height: 100%;
+  gap: 4px;
+  padding: 6px 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: none;
+}
+.outline-ruler::-webkit-scrollbar {
+  display: none;
+}
+.outline-tick-row {
+  /* 均分:行高随标题数自适应,所有刻度都显示(鸟瞰)。min-height 兜底防极端压缩 */
+  flex: 1 1 0;
+  min-height: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: background var(--t-fast) var(--ease);
+}
+.outline-tick-row:not([data-active="true"]):hover {
+  background: var(--hover);
+}
+.outline-tick-row:not([data-active="true"]):hover .outline-tick {
+  opacity: 0.7;
+}
+/* 刻度横线:细(2px);层级用宽度区分;active 仅改色 + 发光,不加粗不改布局 → 零位移 */
+.outline-tick {
+  height: 2px;
+  border-radius: 1px;
+  background: var(--text-tertiary);
+  opacity: 0.4;
+  flex-shrink: 0;
+  transition: opacity var(--t-fast) var(--ease),
+    background var(--t-fast) var(--ease),
+    box-shadow var(--t-fast) var(--ease);
+}
+/* 宽度按层级:深层刻度更短,右缘对齐形成"刻度尺" */
+.outline-tick-row[data-level="1"] .outline-tick { width: 22px; }
+.outline-tick-row[data-level="2"] .outline-tick { width: 18px; }
+.outline-tick-row[data-level="3"] .outline-tick { width: 14px; }
+.outline-tick-row[data-level="4"] .outline-tick { width: 10px; }
+.outline-tick-row[data-level="5"] .outline-tick { width: 10px; }
+.outline-tick-row[data-level="6"] .outline-tick { width: 10px; }
+.outline-tick-row[data-active="true"] .outline-tick {
+  background: var(--accent);
+  opacity: 1;
+  box-shadow: 0 0 8px var(--accent);
+}
+
+/* hover 浮层:absolute 紧贴刻度尺左缘(right:100%,无缝防 mouseleave 往复),
+   默认 opacity:0 + pointer-events:none,root hover 时 fade-in。
+   仅过渡 opacity/transform,不改刻度尺几何。 */
+.outline-float {
+  position: absolute;
+  right: 100%;
+  top: 0;
+  height: 100%;
+  width: 240px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: none;
+  background: var(--surface-translucent);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  -webkit-backdrop-filter: blur(var(--outline-blur));
+  backdrop-filter: blur(var(--outline-blur));
+  box-shadow: var(--shadow-menu);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(6px);
+  transition: opacity var(--t-side) var(--ease),
+    transform var(--t-side) var(--ease);
+}
+.outline-float::-webkit-scrollbar {
+  display: none;
+}
+.outline-root:hover .outline-float {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(0);
+}
+
+/* 浮层项:高度固定(无 height 过渡 → 无几何抖动),hover/active 仅改背景 */
+.outline-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 28px;
+  flex-shrink: 0;
+  padding-right: 12px;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  user-select: none;
+  transition: background var(--t-fast) var(--ease);
+}
+.outline-item:not(.active):hover {
+  background: var(--hover);
+}
+.outline-item.active {
+  background: var(--accent-bg);
+}
+
+/* 当前章节左侧 accent 竖条标记 */
+.outline-marker {
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  border-radius: 1px;
+  background: transparent;
+  transition: background var(--t-fast) var(--ease);
+}
+.outline-item.active .outline-marker {
+  background: var(--accent);
+}
+
+/* 标题文字容器:固定宽度,overflow:hidden 横向裁切。
+   内层 .outline-text-inner 宽度不限,hover 时 JS 加 .scrolling 类触发 transform
+   平移从左滚到右端露出全文,鼠标离开复位。滚动发生在容器内部,不溢出浮层。 */
+.outline-text {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  height: 1.35em;
+  overflow: hidden;           /* 横向裁切:文字超长时不撑乱布局,靠滚动露出 */
+  font-size: 14px;
+  line-height: 1.35;
+  color: var(--text-secondary);
+  letter-spacing: -0.01em;
+  transition: color var(--t-fast) var(--ease);
+}
+.outline-text-inner {
+  display: block;
+  width: max-content;
+  white-space: nowrap;
+  /* 滚动位移距离:由 JS 设定 --outline-scroll-distance(负值),动画用 */
+  --outline-scroll-distance: 0px;
+  transition: none;
+}
+/* hover 滚动:文字向左平移 --outline-scroll-distance,露出尾部全文。
+   用 transition 平滑滚动(非 keyframes 循环),到末端停住,鼠标离开复位。 */
+.outline-text-inner.scrolling {
+  transform: translateX(var(--outline-scroll-distance));
+  transition: transform 1.6s var(--ease);
+}
+.outline-item.active .outline-text {
+  color: var(--text);
+  font-weight: 500;
+}
+
+/* 显隐控制 */
+/* 窄窗口隐藏:留白不足以容纳刻度尺 */
+@media (max-width: 1099px) {
+  .outline-root {
+    display: none;
+  }
+}
+/* 专注模式隐藏:与侧栏/标签栏一并隐藏,主内容全宽 */
+.app.focus-mode .outline-root {
+  display: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .outline-root,
+  .outline-float,
+  .outline-item,
+  .outline-tick {
+    transition-duration: 0s !important;
+  }
+}
+

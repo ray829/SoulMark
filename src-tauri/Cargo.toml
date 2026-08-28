@@ -26,3 +26,9 @@ tauri-plugin-fs = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-log = "2"
 log = "0.4"
+
+# 仅 Windows/Linux 需要:捕获"第二个实例唤起已运行实例"时的命令行参数。
+# macOS 由系统保证单实例,文件打开事件走 RunEvent::Opened,无需此插件。
+# target 限定避免 mobile 构建拉入不支持的平台 crate。
+[target.'cfg(any(target_os = "windows", target_os = "linux"))'.dependencies]
+tauri-plugin-single-instance = "2"
