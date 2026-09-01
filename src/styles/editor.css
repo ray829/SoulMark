@@ -8,7 +8,7 @@
   font-size: var(--editor-font-size, 16px);
   line-height: 1.7;
   color: var(--text);
-  background: var(--surface);
+  background: transparent;
   letter-spacing: -0.01em;
 }
 
@@ -143,10 +143,14 @@
 .milkdown .code-block-wrap {
   position: relative;
   margin: 0 0 18px;
-  background: var(--sidebar-bg);
+  /* 半透明叠层而非纯色 --sidebar-bg:与毛玻璃容器系统一致,在 reader 白上呈极淡灰 */
+  background: rgba(0, 0, 0, 0.03);
   border: 1px solid var(--border);
   border-radius: 6px;
   overflow: hidden;
+}
+[data-theme="dark"] .milkdown .code-block-wrap {
+  background: rgba(0, 0, 0, 0.22);
 }
 .milkdown .code-block-toolbar {
   display: flex;
@@ -154,7 +158,11 @@
   align-items: center;
   padding: 6px 12px;
   border-bottom: 1px solid var(--border);
-  background: var(--surface);
+  /* 与代码块同系半透明叠层,toolbar 与代码区柔和分层 */
+  background: rgba(0, 0, 0, 0.02);
+}
+[data-theme="dark"] .milkdown .code-block-toolbar {
+  background: rgba(0, 0, 0, 0.18);
 }
 .milkdown .code-block-lang {
   font-family: "SF Mono", "SFMono-Regular", Consolas, Menlo, monospace;
@@ -209,6 +217,15 @@
 .milkdown .ProseMirror ::selection {
   background: rgba(37, 99, 235, 0.16);
 }
+/* 空段落(ProseMirror 渲染为 <p><br></p>)在选区内不高亮:
+   跨段选区时,空行整行被 ::selection 涂蓝,与上下文字高亮割裂,视觉上像
+   「空白行也被选中了」。这里让空段落内的选区背景透明,空行不再显眼高亮,
+   只保留有文字部分的高亮。仅匹配「只含 <br>」的空段落——ProseMirror 标准
+   下非空段落末尾无 <br>,br:only-child 精确区分空/非空段落,有文字的段落不受影响。 */
+.milkdown .ProseMirror p:has(> br:only-child)::selection,
+.milkdown .ProseMirror p:has(> br:only-child) ::selection {
+  background: transparent;
+}
 
 /* 图片放大预览层 */
 .img-lightbox {
@@ -218,15 +235,19 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.6);
+  padding: 48px;
+  background: rgba(0, 0, 0, 0.85);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
   cursor: zoom-out;
   animation: lightbox-in 150ms ease;
 }
 .img-lightbox img {
   max-width: 90vw;
   max-height: 90vh;
-  border-radius: 8px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-glass-lg);
+  object-fit: contain;
 }
 @keyframes lightbox-in {
   from { opacity: 0; }
@@ -296,7 +317,11 @@
 }
 .milkdown th {
   font-weight: 600;
-  background: var(--sidebar-bg);
+  /* 表头半透明叠层,与代码块/容器系统一致 */
+  background: rgba(0, 0, 0, 0.03);
+}
+[data-theme="dark"] .milkdown th {
+  background: rgba(0, 0, 0, 0.22);
 }
 .milkdown tr:nth-child(2n) { background: var(--hover); }
 
@@ -328,7 +353,7 @@
   margin: 0;
   padding: 14px 18px;
   text-align: left;
-  background: var(--sidebar-bg);
+  background: rgba(0, 0, 0, 0.03);
   border: 1px solid var(--border);
   border-radius: 6px;
   font-family: "SF Mono", "SFMono-Regular", Consolas, Menlo, monospace;
@@ -337,3 +362,215 @@
   white-space: pre;
   overflow: auto;
 }
+[data-theme="dark"] .milkdown .mermaid-fallback {
+  background: rgba(0, 0, 0, 0.22);
+}
+
+/* 选区浮动工具栏(类 Notion):createPortal 到 body,fixed 定位,选区上方居中。
+   半透明毛玻璃 + 阴影,与代码块工具栏同系叠层风格。 */
+.md-selection-toolbar {
+  position: fixed;
+  z-index: 1500;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding: 4px 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.06);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  font-size: 13px;
+  line-height: 1;
+  user-select: none;
+  animation: md-toolbar-in 0.12s var(--ease);
+}
+@keyframes md-toolbar-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+[data-theme="dark"] .md-selection-toolbar {
+  background: rgba(40, 40, 42, 0.92);
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.md-toolbar-btn {
+  min-width: 26px;
+  height: 26px;
+  padding: 0 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  background: transparent;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+.md-toolbar-btn:hover {
+  background: var(--hover-active);
+}
+.md-toolbar-btn.italic {
+  font-style: italic;
+  font-family: Georgia, "Times New Roman", serif;
+}
+.md-toolbar-btn.strike {
+  text-decoration: line-through;
+}
+.md-toolbar-btn.code {
+  font-family: "SF Mono", "SFMono-Regular", Consolas, Menlo, monospace;
+  font-size: 11px;
+}
+.md-toolbar-btn.heading {
+  font-weight: 600;
+}
+/* active 态:按钮内文字变蓝 + 淡蓝底,与 ::selection 高亮同系 */
+.md-toolbar-btn[data-active] {
+  color: #2563eb;
+  background: rgba(37, 99, 235, 0.12);
+}
+[data-theme="dark"] .md-toolbar-btn[data-active] {
+  color: #93b4fd;
+  background: rgba(110, 142, 241, 0.18);
+}
+/* 禁用态(标题下拉在跨块/表格/列表内):置灰 + 不响应 hover */
+.md-toolbar-btn[data-disabled],
+.md-toolbar-btn:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+.md-toolbar-btn[data-disabled]:hover,
+.md-toolbar-btn:disabled:hover {
+  background: transparent;
+}
+.md-toolbar-btn.primary {
+  color: #fff;
+  background: #2563eb;
+}
+.md-toolbar-btn.primary:hover {
+  background: #1d4ed8;
+}
+
+.md-toolbar-sep {
+  width: 1px;
+  height: 16px;
+  margin: 0 3px;
+  background: var(--border);
+  flex: none;
+}
+
+/* 链接输入:input + 确定按钮,替换原 mark 按钮组 */
+.md-toolbar-link {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.md-toolbar-link-input {
+  width: 220px;
+  height: 26px;
+  padding: 0 8px;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  outline: none;
+}
+.md-toolbar-link-input:focus {
+  border-color: #2563eb;
+}
+[data-theme="dark"] .md-toolbar-link-input {
+  background: rgba(0, 0, 0, 0.25);
+}
+
+/* 标题下拉容器 + 箭头 */
+.md-toolbar-dropdown {
+  position: relative;
+  display: inline-flex;
+}
+.md-toolbar-caret {
+  margin-left: 3px;
+  font-size: 10px;
+  opacity: 0.6;
+}
+/* 下拉面板:工具栏下方,与工具栏同系半透明叠层。鼠标点击不抢焦点(mousedown 已 prevent)。 */
+.md-toolbar-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 1600;
+  min-width: 132px;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.14), 0 1px 3px rgba(0, 0, 0, 0.06);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  /* 注意:不能用 md-toolbar-in(它带 translateX(-50%) 供工具栏居中),
+     下拉面板是 absolute left:0 定位,translateX 会让面板动画期间左偏、结束跳回 → 跳变。
+     独立动画只做 opacity + translateY,水平不动。 */
+  animation: md-menu-in 0.12s var(--ease);
+}
+@keyframes md-menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+[data-theme="dark"] .md-toolbar-menu {
+  background: rgba(40, 40, 42, 0.95);
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+.md-toolbar-menu-btn {
+  display: flex;
+  align-items: baseline;
+  width: 100%;
+  padding: 6px 10px;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: transparent;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--t-fast) var(--ease);
+}
+.md-toolbar-menu-btn:hover {
+  background: var(--hover-active);
+}
+/* 各级标题字号预览(与编辑区 .milkdown h1~h6 同比,便于直观选择) */
+.md-h1 { font-size: 1.5em; font-weight: 700; line-height: 1.4; }
+.md-h2 { font-size: 1.3em; font-weight: 700; line-height: 1.4; }
+.md-h3 { font-size: 1.15em; font-weight: 700; line-height: 1.4; }
+.md-h4 { font-size: 1em; font-weight: 700; line-height: 1.4; }
+.md-h5 { font-size: 0.9em; font-weight: 700; line-height: 1.4; }
+.md-h6 { font-size: 0.85em; font-weight: 700; line-height: 1.4; opacity: 0.85; }
+
+/* 有序列表按钮:等宽对齐 "1." */
+.md-toolbar-btn.list-ol {
+  font-family: "SF Mono", "SFMono-Regular", Consolas, Menlo, monospace;
+  font-size: 12px;
+  font-weight: 600;
+}
+

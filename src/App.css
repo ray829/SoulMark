@@ -61,6 +61,32 @@
   --ease: cubic-bezier(0.4, 0, 0.2, 1);
   /* 弹性回弹:用于悬浮球扇形展开/收起,带轻微 overshoot */
   --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* ===== 高级感:自定义背景图 + 毛玻璃 =====
+     --bg-image/--bg-blur/--bg-dim/--glass-blur/--glass-opacity 由 useSettings
+     动态写入 :root inline style,localStorage 持久化。无背景图时回退纯色兜底。 */
+  --bg-image: none;        /* 背景图 URL,无图 none */
+  --bg-blur: 0px;          /* 背景图自身模糊(让杂图柔和) */
+  --bg-dim: 0.35;          /* 遮罩强度 0~1(可读性兜底) */
+  --glass-blur: 16px;      /* 容器 backdrop 模糊半径 */
+  --glass-opacity: 0.85;   /* 全局容器透明度基准(各容器按需 calc 偏移分档) */
+
+  /* 半透明表面色:替代不透明 --surface 用于毛玻璃容器。
+     顶栏/侧栏最透(氛围);主区(reader)略不透明(阅读优先);浮层(float)更不透明(清晰浮于主区之上)。
+     min() 钳制透明度上限 ≤1,opacity 滑块调高时不溢出。 */
+  --surface-glass: rgba(255, 255, 255, var(--glass-opacity));
+  --surface-glass-reader: rgba(255, 255, 255, min(1, var(--glass-opacity) + 0.1));
+  --surface-glass-float: rgba(255, 255, 255, min(1, var(--glass-opacity) + 0.15));
+
+  /* 阴影:近距 1px 硬影贴地 + 远距柔影悬浮,去边框后承担分层主体。
+     --shadow-glass / -lg 给浮层(弹窗/菜单/悬浮球);
+     --shadow-topbar 向下、--shadow-sidebar 向右,承担顶栏/侧栏的悬浮分层。 */
+  --shadow-glass: 0 1px 2px rgba(0, 0, 0, 0.05), 0 4px 16px rgba(0, 0, 0, 0.10);
+  --shadow-glass-lg: 0 2px 4px rgba(0, 0, 0, 0.06), 0 12px 32px rgba(0, 0, 0, 0.14);
+  --shadow-topbar: 0 1px 0 rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.08);
+  --shadow-sidebar: 1px 0 0 rgba(0, 0, 0, 0.04), 3px 0 12px rgba(0, 0, 0, 0.08);
+  /* 顶部高光:模拟光线从上方打来,毛玻璃"玻璃光感"来源,去边框后的精致点睛 */
+  --highlight-top: inset 0 1px 0 rgba(255, 255, 255, 0.5);
 }
 
 /* ===== 暗色主题:覆盖 token =====
@@ -101,6 +127,18 @@
   --scrollbar-thumb-hover: #5c636d;
 
   --surface-translucent: rgba(35, 39, 46, 0.92);
+
+  /* 暗色:半透明表面色改用深色 rgb,透明度仍走全局 --glass-opacity */
+  --surface-glass: rgba(35, 39, 46, var(--glass-opacity));
+  --surface-glass-reader: rgba(35, 39, 46, min(1, var(--glass-opacity) + 0.1));
+  --surface-glass-float: rgba(35, 39, 46, min(1, var(--glass-opacity) + 0.15));
+
+  /* 暗色:降黑度避免发脏,靠近距硬影 + 顶部微亮边分层 */
+  --shadow-glass: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.35);
+  --shadow-glass-lg: 0 2px 4px rgba(0, 0, 0, 0.35), 0 16px 40px rgba(0, 0, 0, 0.45);
+  --shadow-topbar: 0 1px 0 rgba(0, 0, 0, 0.25), 0 4px 12px rgba(0, 0, 0, 0.3);
+  --shadow-sidebar: 1px 0 0 rgba(0, 0, 0, 0.25), 3px 0 12px rgba(0, 0, 0, 0.3);
+  --highlight-top: inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
 /* ===== Reset ===== */
@@ -115,6 +153,12 @@ body,
 #root {
   height: 100%;
   height: 100dvh;
+  /* 固定单屏应用:禁止视口滚动。
+     新增的 .bg-layer(position:fixed + transform:scale(1.1))视觉溢出视口,
+     会贡献给视口的 scrollable overflow 而撑出右侧垂直滚动条。
+     #root 裁掉它即可,不影响 fixed 浮层(lightbox/modal/ctx-menu,其 containing
+     block 是 viewport,不被普通 #root 的 overflow 裁剪)。 */
+  overflow: hidden;
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI",
     "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
   color: var(--text);
@@ -123,25 +167,82 @@ body,
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* ===== 背景层:固定铺满视口,承载用户上传图片 =====
+   与 .app 平级(fragments 直接子级),z-index:0;.app 提到 z-index:1 在其上。
+   各容器半透明 → 透出本层 → 毛玻璃质感。无图时 background-image:none,露出 body 兜底色。 */
+.bg-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  background-image: var(--bg-image, none);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  /* 背景图自身模糊:让杂乱图片变柔和,不抢注意力 */
+  filter: blur(var(--bg-blur, 0px));
+  /* 模糊会把边缘虚化露出底色,放大 10% 遮住边缘虚边 */
+  transform: scale(1.1);
+  transition: background-image var(--t-side) var(--ease),
+    filter var(--t-side) var(--ease);
+}
+
+/* 遮罩层:压在背景图上、容器下,统一降亮保证可读。
+   伪元素避免多加 DOM;强度由 --bg-dim(0~1)控制。 */
+.bg-layer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(245, 246, 248, 1);
+  opacity: var(--bg-dim, 0.35);
+  transition: opacity var(--t-side) var(--ease);
+}
+
+/* 暗色:黑雾遮罩 */
+[data-theme="dark"] .bg-layer::after {
+  background: rgba(10, 12, 14, 1);
+}
+
 /* ===== 整体布局 ===== */
 .app {
+  position: relative;
+  z-index: 1; /* 提到 .bg-layer 之上,容器半透明方可透出背景 */
   display: flex;
   flex-direction: column;
   height: 100dvh;
   overflow: hidden;
 }
 
+/* ===== 无背景图:容器回归不透明纯白,干净统一 =====
+   纯色背景下半透明(--glass-opacity 默认 0.4)会发灰、顶栏/侧栏/主区出现色差。
+   无图态强制各容器为 --surface 纯白 + 关闭 backdrop-filter,靠阴影 + 顶部高光分层;
+   顶栏=侧栏=主区=标题栏背景完全一致。有背景图(.app.has-bg)时走半透明毛玻璃氛围。 */
+.app:not(.has-bg) .topbar,
+.app:not(.has-bg) .sidebar,
+.app:not(.has-bg) .main-content,
+.app:not(.has-bg) .editor-wrap,
+.app:not(.has-bg) .welcome,
+.app:not(.has-bg) .ctx-menu,
+.app:not(.has-bg) .modal,
+.app:not(.has-bg) .fab-main,
+.app:not(.has-bg) .fab-item,
+.app:not(.has-bg) .fab-top,
+.app:not(.has-bg) .tab-scroll-btn {
+  background: var(--surface);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
 .app-body {
   display: flex;
   flex: 1;
   min-height: 0;
-  /* 仅左侧留 8px 与侧栏分隔;底部/右侧贴满,主内容卡片撑到界面底边。
-     顶部无 padding:顶栏与主内容直接衔接(顶栏自身有高度)。 */
-  padding: 0 0 0 8px;
-  gap: 8px;
+  /* 侧栏与主区直接相邻,无间隙:侧栏向右投影落到主区上才可见分层。
+     原 padding/gap 让投影落到"空气"里,失去悬浮感。 */
+  padding: 0;
+  gap: 0;
 }
 
-/* 侧栏收起:去掉左侧 padding 与 gap,主内容占满整体宽度;侧栏仍挂载(width 0)以保留内部展开状态 */
+/* 侧栏收起:主内容占满整体宽度;侧栏仍挂载(width 0)以保留内部展开状态 */
 .app.sidebar-collapsed .app-body {
   padding: 0;
   gap: 0;
@@ -150,10 +251,15 @@ body,
 /* ===== 顶部栏 ===== */
 .topbar {
   position: relative;
+  z-index: 5;
   display: flex;
   align-items: center;
   height: var(--topbar-h);
   flex-shrink: 0;
+  /* 毛玻璃顶栏:半透明 + backdrop,透出背景层 */
+  background: var(--surface-glass);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.4);
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.4);
   -webkit-user-select: none;
   user-select: none;
 }
@@ -304,7 +410,7 @@ body,
   height: 34px;
   border: none;
   border-radius: var(--radius-sm);
-  background: var(--bg);
+  background: var(--surface-glass-float);
   color: var(--text-secondary);
   cursor: pointer;
   flex-shrink: 0;
@@ -473,6 +579,8 @@ body,
 
 /* ===== 侧栏 ===== */
 .sidebar {
+  position: relative;
+  z-index: 2; /* 高于主区:侧栏向右投影需落在主区之上才可见 */
   width: var(--sidebar-w);
   /* flex-shrink:1 — 窗口偏窄时侧栏主动收缩,把空间让给主内容区,
      配合 .main-content 的 min-width,保证主区达到最小可读宽度而不溢出/不横向滚动。
@@ -481,9 +589,16 @@ body,
   min-width: 0;
   display: flex;
   flex-direction: column;
-  overflow-y: auto;
-  overflow-x: hidden;
-  background: var(--sidebar-bg);
+  /* 侧栏整体不滚动:搜索框(顶)与底部操作条(底)固定,仅中间文件列表区
+     (.nav-section)独立滚动。整体 overflow:hidden 裁掉子项溢出,
+     滚动职责下移到 .nav-section(flex:1 + overflow-y:auto)。 */
+  overflow: hidden;
+  /* 毛玻璃侧栏:半透明 + backdrop */
+  background: var(--surface-glass);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.4);
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.4);
+  /* 向右投影:侧栏悬浮于主区之上,与顶栏投影一起承担分层,主区无需孤悬阴影 */
+  box-shadow: var(--shadow-sidebar);
   -webkit-user-select: none;
   user-select: none;
 }
@@ -608,21 +723,27 @@ body,
 }
 
 /* 搜索栏 — 白底圆角输入 + ⌘K 键位 */
+/* 搜索栏 — 全宽胶囊,浮于侧栏之上(非嵌入补丁) */
 .nav-search {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: 4px 8px 10px;
-  padding: 6px 10px;
-  border: 1px solid transparent;
-  border-radius: var(--radius);
-  background: var(--surface);
-  box-shadow: var(--shadow-sm);
-  transition: border-color var(--t-fast) var(--ease);
+  flex-shrink: 0; /* 固定在侧栏顶部,不随中间列表区滚动、不被压缩 */
+  height: 38px;
+  margin: 8px 12px 12px;
+  padding: 0 12px;
+  /* 胶囊化:去边框去浮起阴影,浅灰底浮于侧栏之上而非"嵌"入 */
+  border: none;
+  border-radius: 10px;
+  background: var(--tab-bg);
+  box-shadow: none;
+  transition: background var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
 }
 
 .nav-search:focus-within {
-  border-color: var(--accent);
+  /* 聚焦提亮为白 + 极淡蓝圈,轻盈无强边框 */
+  background: var(--surface);
+  box-shadow: 0 0 0 2px var(--accent-bg);
 }
 
 .nav-search svg {
@@ -661,8 +782,14 @@ body,
   flex-shrink: 0;
 }
 
-/* 分组 */
+/* 分组:同时是侧栏中间的独立滚动容器(搜索框与底部操作条之间)。
+   flex:1 占满剩余高度,min-height:0 允许收缩后内部滚动,
+   overflow-y:auto 让文件树/搜索结果在自身滚动,而非撑开整个侧栏。 */
 .nav-section {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
   padding: 10px 0 4px;
 }
 
@@ -682,6 +809,7 @@ body,
   gap: 10px;
   padding: 40px 24px;
   flex: 1;
+  min-height: 0; /* flex:1 占位时允许收缩,不被 footer 挤出侧栏 */
   text-align: center;
 }
 
@@ -706,7 +834,7 @@ body,
   position: relative;
   display: flex;
   align-items: center;
-  height: 30px;
+  height: 36px; /* 30→36,给文字上下留呼吸空间 */
   padding-right: 12px;
   margin: 0 8px;
   border-radius: var(--radius-sm);
@@ -722,9 +850,23 @@ body,
 }
 
 .tree-row.active {
-  background: var(--active-bg);
-  color: var(--active-fg);
+  /* 选中态:浅蓝圆角矩形(左右留白不贴边) + 左侧竖条,Notion/VS Code 风格 */
+  background: var(--accent-bg);
+  color: var(--text);
   font-weight: 500;
+}
+
+/* 选中态左侧竖条:贴行左缘(Notion 风),伪元素不占布局,盖在缩进辅助线之上 */
+.tree-row.active::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+  background: var(--accent);
+  z-index: 1;
 }
 
 .tree-indent {
@@ -817,19 +959,30 @@ body,
 /* ===== 主内容区 — 白色圆角卡片 ===== */
 .main-content {
   position: relative;
+  z-index: 5; /* 盖住顶栏底边与侧栏右边:左上圆角缺口落在它们的玻璃面上而非裸露背景图 */
   flex: 1;
   /* 最小宽度:保证正文区可读(360px 减去 .milkdown 左右 padding 96px,正文区约 264px)。
-     配合 .sidebar flex-shrink:1,窗口窄时侧栏先收缩让位,主区保住 360px,
-     侧栏min(180)+主区360+padding16=556 ≤ 窗口最小宽度600,不溢出 → 不横向滚动。 */
+     配合 .sidebar flex-shrink:1,窗口窄时侧栏先收缩让位,主区保住 360px。 */
   min-width: 360px;
+  /* 负 margin:主区向左上扩展,把左上圆角"咬"进顶栏/侧栏 */
+  margin: -2px 0 0 -2px;
   display: flex;
   flex-direction: column;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  /* 仅上方圆角:卡片底部贴满界面底边,下圆角会被边缘裁掉一半显怪异,故下方取直角 */
-  border-radius: var(--radius-card) var(--radius-card) 0 0;
-  box-shadow: var(--shadow-sm);
+  /* 毛玻璃主卡片:半透明 + backdrop,透出背景层。仅左上角圆角,其余三角直角。 */
+  background: var(--surface-glass-reader);
+  border: none;
+  border-radius: var(--radius) 0 0 0;
+  box-shadow: var(--shadow-glass), var(--highlight-top);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.4);
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.4);
   overflow: hidden;
+}
+
+/* 有背景图:毛玻璃融入背景氛围,外投影在花背景上生硬割裂,去掉仅留顶部高光。
+   分层由 backdrop blur 与背景的明度/材质差承担,卡片透出图片天然浮于其上。
+   纯色态(.app:not(.has-bg))保留 .main-content 上的外投影做悬浮卡片感(浅灰底不割裂)。 */
+.app.has-bg .main-content {
+  box-shadow: var(--highlight-top);
 }
 
 /* 卡片头:文件图标 + 文件名 + 关闭按钮 */
@@ -837,8 +990,10 @@ body,
   display: flex;
   align-items: center;
   height: var(--editor-header-h);
+  background: var(--surface-glass-reader);
   padding: 0 16px;
-  border-bottom: 1px solid var(--border);
+  /* 极淡分隔:inset 发丝线降到 0.04,毛玻璃半透明/纯白下都不显沉重,仅暗示层次 */
+  box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.04);
   -webkit-user-select: none;
   user-select: none;
   flex-shrink: 0;
@@ -906,15 +1061,11 @@ body,
 .editor-wrap {
   position: relative; /* 让欢迎页覆盖层 absolute 相对它定位 */
   flex: 1;
-  /* 右侧留出大纲空间(--outline-reserve,大纲显示时 250px、隐藏时 0)。
-     大纲为 position:fixed,需由文档区让出宽度避免正文被遮挡。 */
+  /* 右侧留出大纲空间(--outline-reserve,大纲显示时 250px、隐藏时 0)。大纲为 position:fixed,需由文档区让出宽度避免正文被遮挡。 */
   padding-right: var(--outline-reserve, 0px);
-  /* 仅纵向滚动:主内容区禁止横向滚动条。横向溢出由内容自身换行
-     (overflow-wrap:anywhere)与各块局部 overflow:auto(代码块/表格/公式)吸收,
-     避免长串或窄窗口撑出横向滚动条。 */
   overflow-y: auto;
   overflow-x: hidden;
-  background: var(--surface);
+  background: var(--surface-glass-reader);
 }
 
 .editor-wrap > [data-milkdown-root] {
@@ -938,10 +1089,12 @@ body,
   z-index: 1000;
   min-width: 160px;
   padding: 4px;
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: var(--surface-glass-float);
+  border: none;
   border-radius: var(--radius);
-  box-shadow: var(--shadow-menu);
+  box-shadow: var(--shadow-glass), var(--highlight-top);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.4);
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.4);
 }
 
 .ctx-item {
@@ -1000,10 +1153,12 @@ body,
 .modal {
   width: 320px;
   padding: 24px;
-  background: var(--surface);
+  background: var(--surface-glass-float);
   border-radius: 12px;
-  box-shadow: var(--shadow-modal);
-  border: 1px solid var(--border);
+  box-shadow: var(--shadow-glass-lg), var(--highlight-top);
+  border: none;
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.4);
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.4);
 }
 
 .modal-title {
@@ -1069,6 +1224,118 @@ body,
   border-color: var(--accent);
 }
 
+/* ===== 外观设置弹窗 ===== */
+.settings-modal {
+  width: 360px;
+}
+.settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+.settings-header .modal-title {
+  margin-bottom: 0;
+}
+.settings-section {
+  margin-bottom: 18px;
+}
+.settings-section:last-of-type {
+  margin-bottom: 0;
+}
+.settings-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  margin-bottom: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.bg-actions {
+  display: flex;
+  gap: 8px;
+}
+.bg-actions .sidebar-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex: 1;
+}
+.bg-actions .sidebar-btn svg {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+}
+.bg-preview {
+  margin-top: 10px;
+  height: 84px;
+  border-radius: var(--radius);
+  background-size: cover;
+  background-position: center;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+}
+.bg-error {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--danger);
+}
+
+/* 滑块行 */
+.range-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 10px 0;
+}
+.range-label {
+  flex: 0 0 84px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.range-input {
+  flex: 1;
+  height: 4px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: var(--tab-bg);
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+.range-input:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.range-input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+  border: none;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+  transition: transform var(--t-fast) var(--ease);
+}
+.range-input:not(:disabled)::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+.range-value {
+  flex: 0 0 48px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  font-family: ui-monospace, "SF Mono", "Menlo", monospace;
+}
+.settings-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 18px;
+}
+
 /* ===== 欢迎页 / 空状态 ===== */
 .welcome {
   position: absolute;
@@ -1079,7 +1346,8 @@ body,
   align-items: center;
   justify-content: center;
   padding: 64px 24px;
-  background: var(--surface);
+  /* 空态:高不透明毛玻璃,文字清晰 */
+  background: var(--surface-glass-reader);
 }
 
 .welcome-inner {
@@ -1242,18 +1510,21 @@ body,
 
 /* ===== 滚动条 ===== */
 .editor-wrap::-webkit-scrollbar,
-.sidebar::-webkit-scrollbar {
+.sidebar::-webkit-scrollbar,
+.nav-section::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 
 .editor-wrap::-webkit-scrollbar-track,
-.sidebar::-webkit-scrollbar-track {
+.sidebar::-webkit-scrollbar-track,
+.nav-section::-webkit-scrollbar-track {
   background: transparent;
 }
 
 .editor-wrap::-webkit-scrollbar-thumb,
-.sidebar::-webkit-scrollbar-thumb {
+.sidebar::-webkit-scrollbar-thumb,
+.nav-section::-webkit-scrollbar-thumb {
   background: var(--scrollbar-thumb);
   border-radius: 3px;
   border: 1px solid transparent;
@@ -1261,13 +1532,15 @@ body,
 }
 
 .editor-wrap::-webkit-scrollbar-thumb:hover,
-.sidebar::-webkit-scrollbar-thumb:hover {
+.sidebar::-webkit-scrollbar-thumb:hover,
+.nav-section::-webkit-scrollbar-thumb:hover {
   background: var(--scrollbar-thumb-hover);
   background-clip: content-box;
 }
 
 .editor-wrap,
-.sidebar {
+.sidebar,
+.nav-section {
   scrollbar-width: thin;
   scrollbar-color: var(--scrollbar-thumb) transparent;
 }
@@ -1335,19 +1608,39 @@ body,
   }
 }
 
-/* ===== 专注模式:隐藏侧栏与标签栏,主内容区全宽最大化阅读 =====
-   由 useSettings 给 .app 加 .focus-mode class。 */
-.app.focus-mode .sidebar,
-.app.focus-mode .topbar-tabs-wrap,
-.app.focus-mode .topbar-tab-add,
-.app.focus-mode .sidebar-resizer {
+/* ===== 源码模式:等宽字体 textarea 承载 md 原文,绝对定位覆盖 Milkdown =====
+   可编辑纯文本(无高亮)。padding 参考 Milkdown 编辑区留白,底部留白避免
+   内容贴着悬浮球。背景透明:复用 .editor-wrap 的毛玻璃背景(有背景图态透出
+   背景图、无背景图态为纯白),与正常模式视觉一致,不挡背景图。 */
+.source-view {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  width: 100%;
+  height: 100%;
+  padding: 32px 48px 140px;
+  border: none;
+  outline: none;
+  resize: none;
+  font-family: "SF Mono", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: var(--editor-font-size, 16px);
+  line-height: 1.7;
+  color: var(--text);
+  background: transparent;
+  tab-size: 2;
+}
+
+/* 源码模式:隐藏 Milkdown(否则它仍占位、内容从 textarea 下方露出),
+   并让 .editor-wrap 停止滚动(textarea 自身滚动,避免双层滚动冲突)。
+   .app.source-mode 由 App.tsx 在 sourceMode 时加到 .app 上。
+   注意:隐藏 Milkdown 会使 .editor-wrap 的 scrollHeight 塌缩、scrollTop 归零,
+   故滚动比例的捕获/恢复在 App.toggleSourceMode 切换前同步完成,不依赖
+   SourceView 的 useEffect(那时已塌缩)。 */
+.app.source-mode .editor-wrap > [data-milkdown-root] {
   display: none;
 }
-.app.focus-mode .app-body {
-  padding-left: 0;
-}
-.app.focus-mode .topbar-toggle-sidebar {
-  opacity: 0.5;
+.app.source-mode .editor-wrap {
+  overflow: hidden;
 }
 
 /* ===== 悬浮球工具按钮 =====
@@ -1368,14 +1661,16 @@ body,
   width: 48px;
   height: 48px;
   border-radius: 50%;
-  border: 1px solid var(--border);
-  background: var(--surface);
+  border: none;
+  background: var(--surface-glass-float);
   color: var(--text-secondary);
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-glass), var(--highlight-top);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.4);
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.4);
   transition: box-shadow var(--t-fast) var(--ease),
     transform var(--t-side) var(--ease-spring),
     background var(--t-fast) var(--ease),
@@ -1455,14 +1750,16 @@ body,
   width: 38px;
   height: 38px;
   border-radius: 50%;
-  border: 1px solid var(--border);
-  background: var(--surface);
+  border: none;
+  background: var(--surface-glass-float);
   color: var(--text-secondary);
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  box-shadow: var(--shadow-menu);
+  box-shadow: var(--shadow-glass), var(--highlight-top);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.4);
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.4);
   z-index: 2;
   /* 收起态:缩回主球圆心,透明,不可交互 */
   transform: translate(50%, 50%) scale(0.2);
@@ -1513,14 +1810,16 @@ body,
   width: 38px;
   height: 38px;
   border-radius: 50%;
-  border: 1px solid var(--border);
-  background: var(--surface);
+  border: none;
+  background: var(--surface-glass-float);
   color: var(--text-secondary);
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  box-shadow: var(--shadow-menu);
+  box-shadow: var(--shadow-glass), var(--highlight-top);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.4);
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.4);
   z-index: 2;
   transform: translateY(0) scale(0.2);
   opacity: 0;
@@ -1594,36 +1893,45 @@ body,
 /* ===== 文档大纲 — 刻度尺 + hover 浮层(解耦,零抖动) =====
    刻度尺(.outline-ruler)常驻、几何恒定;hover 时浮层(.outline-float)在其左侧
    fade-in 显示文字。两层几何独立:刻度尺不参与任何 hover 过渡 → 刻度线无位移抖动。
-   刻度尺固定高度(阅读区 60%)、flex 均分行,永不滚动;active 仅改色不改几何。
-   浮层可滚,active 跟随只在浮层内进行,不惊动刻度尺。 */
+   布局:root 为 row-reverse flex 行,刻度尺(宽 16px)贴右、浮层(宽 240px)紧贴其左,
+   二者均为流内子元素。root 无显式高度、仅封顶阅读区 60%,其高度由最高的流内子元素
+   (恒为浮层:28px/行 > 刻度尺 8px/行)的内容撑起:
+   - 标题少:root = 浮层内容高度 → 浮层完整展开、无滚动;刻度尺被 stretch 到同高,
+     刻度 flex 均分(鸟瞰,与浮层条目大致对齐)。
+   - 标题多到顶破 60%:root 封顶,浮层被 stretch 到封顶高度后内容溢出 → 自身滚动;
+     刻度尺同理(行高压破 8px 下限后内部滚动兜底,滚动条已隐藏)。 */
 .outline-root {
   position: fixed;
   right: 14px;
-  top: calc((var(--topbar-h) + var(--editor-header-h) + 100dvh) / 2);
-  transform: translateY(-50%);
+  top: calc((var(--editor-header-h) + 100dvh) / 2);
+  transform: translateY(-55%);
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  /* 封顶高度 = 阅读区 60%:标题少时随内容伸缩(不占满)、多时封顶可滚。
-     刻度尺行高固定 → 刻度线间距稳定不压缩;超顶时刻度尺自身滚动。 */
+  /* row-reverse:DOM 中刻度尺在前 → 视觉上刻度尺贴右缘,浮层在其左侧。
+     align-items 保持默认 stretch:子元素纵向撑满 root 高度。 */
+  flex-direction: row-reverse;
+  /* 封顶高度 = 阅读区 60%。高度由内容(浮层)撑起,未封顶时不占满、浮层无滚动。 */
   max-height: calc((100dvh - var(--topbar-h) - var(--editor-header-h)) * 0.6);
   z-index: 10;
+  /* 整体不拦截:隐藏态浮层透明 + 穿透,root 自身也穿透 → 鼠标滚轮直达正文,
+     不被 root 盒子(覆盖 256px 宽)吃掉。刻度尺与显示态浮层单独开 auto。 */
+  pointer-events: none;
 }
 
 /* 刻度尺:常驻窄条,几何恒定(无 transition)。鸟瞰模式——所有刻度 flex 均分
-   显示(保持全文结构感知 + 阅读位置),常态不滚动;极长文档行高压破 min-height
-   时才滚动兜底。active 仅靠刻度改色 + 发光强调,不加整行背景。 */
+   显示(保持全文结构感知 + 阅读位置)。作为 root 的流内子元素被 stretch 到 root
+   高度(由浮层内容撑起),行 flex:1 均分该高度;常态不滚动,极长文档行高压破
+   min-height 时才滚动兜底。active 仅靠刻度改色 + 发光强调,不加整行背景。 */
 .outline-ruler {
   display: flex;
+  flex: 0 0 16px; /* row 布局下固定宽 16px,不随主轴收缩 */
   flex-direction: column;
   align-items: flex-end;
-  width: 16px;
-  max-height: 100%;
   gap: 4px;
   padding: 6px 0;
   overflow-y: auto;
   overflow-x: hidden;
   scrollbar-width: none;
+  pointer-events: auto; /* root 已 none,刻度尺单独开启:可 hover 触发浮层 */
 }
 .outline-ruler::-webkit-scrollbar {
   display: none;
@@ -1669,15 +1977,15 @@ body,
   box-shadow: 0 0 8px var(--accent);
 }
 
-/* hover 浮层:absolute 紧贴刻度尺左缘(right:100%,无缝防 mouseleave 往复),
-   默认 opacity:0 + pointer-events:none,root hover 时 fade-in。
+/* hover 浮层:流内子元素,紧贴刻度尺左缘(与刻度尺相邻无间隙,防 mouseleave 往复)。
+   高度 = 自身内容高度(28px/行),从而撑起 root:标题少时完整展开不滚动;
+   只有当内容超过 root 封顶(阅读区 60%)时被 stretch 到封顶高度,才内部滚动。
+   默认 opacity:0 + pointer-events:none,刻度尺 hover 时 fade-in(浮层显示后自身
+   :hover 维持);初始状态浮层 pointer-events:none,鼠标进入其左侧占位区不会触发,
+   必须 hover 到刻度尺才弹出。
    仅过渡 opacity/transform,不改刻度尺几何。 */
 .outline-float {
-  position: absolute;
-  right: 100%;
-  top: 0;
-  height: 100%;
-  width: 240px;
+  flex: 0 0 240px; /* row 布局下固定宽 240px,不随主轴收缩 */
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -1700,7 +2008,11 @@ body,
 .outline-float::-webkit-scrollbar {
   display: none;
 }
-.outline-root:hover .outline-float {
+/* 触发器收窄到刻度尺:鼠标 hover 刻度尺才弹出浮层(而非进入 root 左侧占位区即弹)。
+   浮层显示后 pointer-events:auto,自身 :hover 维持显示——鼠标从刻度尺移入浮层
+   不会收起(二者紧贴无间隙);移出浮层左侧才收起。 */
+.outline-ruler:hover ~ .outline-float,
+.outline-float:hover {
   opacity: 1;
   pointer-events: auto;
   transform: translateX(0);
@@ -1783,16 +2095,32 @@ body,
     display: none;
   }
 }
-/* 专注模式隐藏:与侧栏/标签栏一并隐藏,主内容全宽 */
-.app.focus-mode .outline-root {
-  display: none;
-}
 @media (prefers-reduced-motion: reduce) {
   .outline-root,
   .outline-float,
   .outline-item,
   .outline-tick {
     transition-duration: 0s !important;
+  }
+}
+
+/* ===== backdrop-filter 降级 =====
+   Tauri webview(WKWebView / WebView2)原生支持,基本不触发;
+   极旧环境不支持时回退不透明 surface,保证文字可读。 */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .topbar,
+  .sidebar,
+  .main-content,
+  .editor-wrap,
+  .welcome,
+  .nav-search,
+  .modal,
+  .ctx-menu,
+  .fab-main,
+  .fab-item,
+  .fab-top,
+  .tab-scroll-btn {
+    background: var(--surface);
   }
 }
 

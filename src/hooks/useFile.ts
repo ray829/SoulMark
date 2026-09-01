@@ -41,6 +41,10 @@ export interface Tab {
 export function useFile(
   editorRef: React.RefObject<EditorHandle | null>,
   wrapRef: React.RefObject<HTMLDivElement | null>,
+  /** 源码模式内容同步:源码模式编辑后 Milkdown 未实时更新,切 tab/保存/另存
+   *  读 getMarkdown 前先 flush(把 textarea 内容写回 Milkdown),避免丢数据。
+   *  非源码模式为 no-op。 */
+  flushSource?: () => void,
 ) {
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [activeTabId, setActiveTabId] = useState<number | null>(null);
@@ -55,6 +59,13 @@ export function useFile(
   const activeTabIdRef = useRef<number | null>(null);
   const rootDirRef = useRef<string | null>(null);
   const tabIdRef = useRef(0);
+
+  // flushSource ref 镜像:函数内读 ref.current 拿最新值,避免 flushSource 变化
+  // 导致 flushCurrentTab/saveFile/saveAsFile 及其下游连锁重建(切 tab 是热路径)
+  const flushSourceRef = useRef<(() => void) | undefined>(flushSource);
+  useEffect(() => {
+    flushSourceRef.current = flushSource;
+  }, [flushSource]);
 
   /** 统一更新 tabs:基于 ref 同步计算并立即写回 ref,state 触发 render。
    *  所有 tab 写操作必须走本函数,保证 ref 与 state 一致(最易出 bug 处)。 */
@@ -91,6 +102,8 @@ export function useFile(
     if (!editor || id == null) return;
     const cur = tabsRef.current.find((t) => t.id === id);
     if (!cur) return;
+    // 源码模式时先把 textarea 内容写回 Milkdown,确保 getMarkdown 读到最新
+    flushSourceRef.current?.();
     // 仅在 dirty(内容已变)时才读 editor.getMarkdown(),避免未编辑 tab 切换时序列化整篇文档
     const md = cur.dirty ? editor.getMarkdown() : cur.markdown;
     const st = wrapRef.current?.scrollTop ?? 0;
@@ -240,6 +253,8 @@ export function useFile(
     if (!editor || id == null) return;
     const tab = tabsRef.current.find((t) => t.id === id);
     if (!tab) return;
+    // 源码模式时先把 textarea 内容写回 Milkdown,确保保存的是最新编辑
+    flushSourceRef.current?.();
     const md = editor.getMarkdown();
     let path = tab.path;
     if (!path) {
@@ -262,6 +277,8 @@ export function useFile(
     const editor = editorRef.current;
     const id = activeTabIdRef.current;
     if (!editor || id == null) return;
+    // 源码模式时先把 textarea 内容写回 Milkdown,确保另存的是最新编辑
+    flushSourceRef.current?.();
     const md = editor.getMarkdown();
     const path = await save({ defaultPath: "untitled.md", filters: [MD_FILTER] });
     if (!path) return;

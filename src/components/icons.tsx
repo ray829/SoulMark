@@ -31,9 +31,12 @@ export function CloseIcon(props: IconProps) {
 
 export function FileMarkdown(props: IconProps) {
   return (
-    <svg {...props} {...ICON_ATTRS} strokeWidth={2}>
-      <rect x="3" y="3" width="18" height="18" rx="2" />
-      <path d="M7 16V8l3 4 3-4v8" />
+    <svg {...props} {...ICON_ATTRS} strokeWidth={1.75}>
+      {/* 文件折角轮廓:与 FileGeneric 共用,仅中间图案区分类型 */}
+      <path d="M6 2.5h7l5 5v11a1.5 1.5 0 0 1-1.5 1.5h-10.5A1.5 1.5 0 0 1 4.5 18.5V4A1.5 1.5 0 0 1 6 2.5z" />
+      <path d="M13 2.5V7.5h5" />
+      {/* 中间 M 标记:下箭头折线,比纯方框套 M 更精致 */}
+      <path d="M8 16v-5.5l2.5 2 2.5-2V16" />
     </svg>
   );
 }
@@ -65,17 +68,23 @@ export function ChevronDown(props: IconProps) {
 
 export function FolderIcon(props: IconProps) {
   return (
-    <svg {...props} {...ICON_ATTRS} strokeWidth={2}>
-      <path d="M2 6h6l2 2h12v12H2z" />
+    <svg {...props} {...ICON_ATTRS} strokeWidth={1.75}>
+      {/* 圆角文件夹 + accent 轻填充:有体积感,与纯线框文件图标区分 */}
+      <path
+        d="M3 7a2 2 0 0 1 2-2h3.5l2 2H17a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"
+        fill="var(--accent)"
+        fillOpacity={0.12}
+      />
     </svg>
   );
 }
 
 export function FolderOpenIcon(props: IconProps) {
   return (
-    <svg {...props} {...ICON_ATTRS} strokeWidth={1.8}>
-      <path d="M6 14l1.5-4.5h13L19 14z" />
+    <svg {...props} {...ICON_ATTRS} strokeWidth={1.75}>
       <path d="M3 18V6h6l2 2h8v2" />
+      {/* 翻开的上盖:accent 轻填充,与关闭态文件夹一致区分 */}
+      <path d="M6 14l1.5-4.5h13L19 14z" fill="var(--accent)" fillOpacity={0.12} />
       <path d="M3 18h16" />
     </svg>
   );
@@ -83,19 +92,21 @@ export function FolderOpenIcon(props: IconProps) {
 
 export function FileGeneric(props: IconProps) {
   return (
-    <svg {...props} {...ICON_ATTRS} strokeWidth={2}>
-      <path d="M6 3h7l5 5v13H6z" />
-      <path d="M13 3v5h5" />
+    <svg {...props} {...ICON_ATTRS} strokeWidth={1.75}>
+      <path d="M6 2.5h7l5 5v11a1.5 1.5 0 0 1-1.5 1.5h-10.5A1.5 1.5 0 0 1 4.5 18.5V4A1.5 1.5 0 0 1 6 2.5z" />
+      <path d="M13 2.5V7.5h5" />
+      {/* 中间横线:与 md 的 M 区分,标识"普通文件" */}
+      <path d="M8 13h7M8 16h7" strokeLinecap="round" />
     </svg>
   );
 }
 
 export function FileOpenIcon(props: IconProps) {
   return (
-    <svg {...props} {...ICON_ATTRS} strokeWidth={1.8}>
-      <path d="M6 3h7l5 5v13H6z" />
-      <path d="M13 3v5h5" />
-      <path d="M9 14h6M9 17h4" />
+    <svg {...props} {...ICON_ATTRS} strokeWidth={1.75}>
+      <path d="M6 2.5h7l5 5v11a1.5 1.5 0 0 1-1.5 1.5h-10.5A1.5 1.5 0 0 1 4.5 18.5V4A1.5 1.5 0 0 1 6 2.5z" />
+      <path d="M13 2.5V7.5h5" />
+      <path d="M8 13h6M8 16h4" strokeLinecap="round" />
     </svg>
   );
 }
@@ -171,12 +182,11 @@ export function TypeIcon(props: IconProps) {
   );
 }
 
-/** 专注模式:内容居中聚焦 */
-export function FocusIcon(props: IconProps) {
+/** 源码模式:代码尖括号 </> */
+export function CodeIcon(props: IconProps) {
   return (
     <svg {...props} {...ICON_ATTRS} strokeWidth={2}>
-      <path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3" />
-      <path d="M12 8v8" />
+      <path d="M9 8l-4 4 4 4M15 8l4 4-4 4M13 6l-2 12" />
     </svg>
   );
 }
@@ -187,6 +197,17 @@ export function SettingsIcon(props: IconProps) {
     <svg {...props} {...ICON_ATTRS} strokeWidth={2}>
       <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
       <circle cx="12" cy="12" r="3" />
+    </svg>
+  );
+}
+
+/** 背景图:图片(山+太阳) */
+export function ImageIcon(props: IconProps) {
+  return (
+    <svg {...props} {...ICON_ATTRS} strokeWidth={2}>
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <circle cx="8.5" cy="8.5" r="1.5" />
+      <path d="M21 15l-5-5L5 21" />
     </svg>
   );
 }

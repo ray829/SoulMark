@@ -1,4 +1,5 @@
 import { $node, $view } from "@milkdown/kit/utils";
+import { codeBlockSchema } from "@milkdown/kit/preset/commonmark";
 import type { NodeView } from "@milkdown/kit/prose/view";
 import type { Node } from "@milkdown/kit/prose/model";
 
@@ -113,7 +114,28 @@ class MermaidView implements NodeView {
   }
 }
 
+/* 扩展 commonmark 的 code_block:让其 parseMarkdown match 排除 lang==="mermaid"。
+   根因:Milkdown parser 按 schema 注册顺序 find 第一个 match。code_block 的 match 是
+   `type === "code"`(匹配所有代码块),若先注册会吞掉 ```mermaid,使 mermaid schema 永不命中。
+   但把 mermaid 前置又会破坏空文档:ProseMirror 空 doc 的 block+ 默认填充节点会变成 mermaid
+   (defaultType 取 next[0],mermaid 前置则排首、无必填 attrs 被选中)→ 空态出现空 mermaid 方块。
+   解法:保持 commonmark 在前(空 doc 填充 paragraph 正常),只让 code_block 不匹配 mermaid,
+   parser find 跳过 code_block → 继续匹配到 mermaid schema → 图正常渲染。 */
+const extendCodeBlockSchema = codeBlockSchema.extendSchema((prev) => {
+  return (ctx) => {
+    const base = prev(ctx);
+    return {
+      ...base,
+      parseMarkdown: {
+        match: (node: any) => node.type === "code" && (node.lang as string) !== "mermaid",
+        runner: base.parseMarkdown.runner,
+      },
+    };
+  };
+});
+
 export const mermaidPlugins = [
+  extendCodeBlockSchema,
   mermaidSchema,
   $view(mermaidSchema, () => (node: Node) => new MermaidView(node)),
 ];

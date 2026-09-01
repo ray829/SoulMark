@@ -21,6 +21,9 @@ import { codeBlockViewPlugin } from "./editor-views/CodeBlockView";
 import { shikiHighlightPlugin } from "./editor-views/ShikiHighlightPlugin";
 import { mathPlugins } from "./editor-views/MathView";
 import { mermaidPlugins } from "./editor-views/MermaidView";
+import { markPlugins } from "./editor-views/MarkView";
+import { selectionTrackerPlugin } from "./editor-views/SelectionTrackerPlugin";
+import { SelectionToolbar } from "./SelectionToolbar";
 import { sanitizeHtml } from "../utils/sanitize";
 import "katex/dist/katex.min.css";
 import "../styles/editor.css";
@@ -125,7 +128,9 @@ const InnerEditor = forwardRef<EditorHandle, EditorProps>(function InnerEditor(
       .use(shikiHighlightPlugin)
       .use(mathPlugins as never)
       .use(mermaidPlugins as never)
-      .use(taskCheckboxPlugin);
+      .use(markPlugins as never)
+      .use(taskCheckboxPlugin)
+      .use(selectionTrackerPlugin);
     editorRef.current = editor;
     return editor;
   });
@@ -316,7 +321,14 @@ const InnerEditor = forwardRef<EditorHandle, EditorProps>(function InnerEditor(
     return () => window.removeEventListener("soulmark:shiki-theme", onShikiTheme);
   }, [get]);
 
-  return <Milkdown />;
+  return (
+    <>
+      <Milkdown />
+      {/* 选区浮动工具栏:放在 MilkdownProvider 内,get() 可取到编辑器实例。
+          createPortal 到 body 的定位逻辑由组件内部处理。 */}
+      <SelectionToolbar getEditor={get} />
+    </>
+  );
 });
 
 export const MarkdownEditor = forwardRef<EditorHandle, EditorProps>(

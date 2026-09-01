@@ -66,7 +66,7 @@ export function Outline({ scrollRef }: OutlineProps) {
       // active 项可能在可视区外,展开后拉回;瞬时无动画,避免缓动抖动。
       onMouseEnter={ensureFloatVisible}
     >
-      {/* 刻度尺常驻层:几何恒定(无 hover 过渡),行高固定不压缩。
+      {/* 刻度尺常驻层:几何恒定(无 hover 过渡),行高由 flex 均分、不随交互变化。
           标题多时超顶可滚,active 仅改色不改布局 → 切换 active / hover 全程零位移。 */}
       <div className="outline-ruler" ref={rulerRef}>
         {headings.map((h) => (
@@ -84,7 +84,9 @@ export function Outline({ scrollRef }: OutlineProps) {
           </div>
         ))}
       </div>
-      {/* hover 浮层:absolute 紧贴刻度尺左缘(无缝防 mouseleave),fade-in 显示文字列表。
+      {/* hover 浮层:流内子元素,紧贴刻度尺左缘(相邻无间隙,防 mouseleave),
+          高度由自身内容撑起从而决定 root 高度(标题少不滚动,顶破 60% 封顶才滚),
+          默认隐藏、fade-in 显示文字列表。
           item 高度固定、可滚,active 高亮整行 + 左 marker,文字超长原位横滚。 */}
       <div className="outline-float" ref={floatRef}>
         {headings.map((h) => (

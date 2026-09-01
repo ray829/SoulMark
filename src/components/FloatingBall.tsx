@@ -8,7 +8,8 @@ import {
 } from "react";
 import {
   ArrowUpIcon,
-  FocusIcon,
+  CodeIcon,
+  ImageIcon,
   PanelLeftIcon,
   SettingsIcon,
   TypeIcon,
@@ -26,10 +27,11 @@ interface FloatingBallProps {
   onScrollToTop: () => void;
   fontSize: number;
   onCycleFontSize: () => void;
-  focusMode: boolean;
-  onToggleFocusMode: () => void;
+  sourceMode: boolean;
+  onToggleSourceMode: () => void;
   sidebarCollapsed: boolean;
   onToggleSidebar: () => void;
+  onOpenBgSettings: () => void;
 }
 
 /** 滚动多少 px 后显示"回到顶部"按钮 */
@@ -118,10 +120,11 @@ export function FloatingBall(props: FloatingBallProps) {
     onScrollToTop,
     fontSize,
     onCycleFontSize,
-    focusMode,
-    onToggleFocusMode,
+    sourceMode,
+    onToggleSourceMode,
     sidebarCollapsed,
     onToggleSidebar,
+    onOpenBgSettings,
   } = props;
 
   const rootRef = useRef<HTMLDivElement>(null);
@@ -203,10 +206,10 @@ export function FloatingBall(props: FloatingBallProps) {
   // 子项按从下到上顺序排布(靠近主球的先弹出)
   const items: ItemDef[] = [
     {
-      key: "focus",
-      icon: <FocusIcon />,
-      label: focusMode ? "退出专注模式" : "进入专注模式",
-      onClick: onToggleFocusMode,
+      key: "source",
+      icon: <CodeIcon />,
+      label: sourceMode ? "退出源码模式" : "源码模式",
+      onClick: onToggleSourceMode,
     },
     {
       key: "font",
@@ -219,6 +222,12 @@ export function FloatingBall(props: FloatingBallProps) {
       icon: <PanelLeftIcon className={sidebarCollapsed ? "flipped" : ""} />,
       label: sidebarCollapsed ? "展开侧边栏" : "收起侧边栏",
       onClick: onToggleSidebar,
+    },
+    {
+      key: "bg-settings",
+      icon: <ImageIcon />,
+      label: "外观设置",
+      onClick: onOpenBgSettings,
     },
   ];
 

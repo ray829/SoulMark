@@ -9,6 +9,7 @@ import { ContextMenu, type MenuItem } from "./components/ContextMenu";
 import { WindowControls } from "./components/WindowControls";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { FloatingBall } from "./components/FloatingBall";
+import { SettingsModal } from "./components/SettingsModal";
 import { ThemeToggleButton } from "./components/ThemeToggleButton";
 import { CloseIcon, FileMarkdown, PanelLeftIcon, PlusIcon } from "./components/icons";
 import { useFile } from "./hooks/useFile";
@@ -17,6 +18,7 @@ import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useSettings } from "./hooks/useSettings";
 import { setShikiTheme } from "./components/editor-views/ShikiHighlightPlugin";
 import { setMermaidTheme } from "./components/editor-views/MermaidView";
+import { SourceView, type SourceViewHandle } from "./components/SourceView";
 import { isWindows } from "./utils/platform";
 import { baseName } from "./utils/path";
 import { smoothScrollBy, smoothScrollTo } from "./utils/scroll";
@@ -42,15 +44,60 @@ function App() {
     onResizeStart,
   } = useSidebarResize();
 
-  // 阅读偏好:主题/字号/专注模式(localStorage 持久化)
+  // 阅读偏好:主题/字号/源码模式/背景图/毛玻璃(localStorage 持久化)
   const {
     theme,
     fontSize,
-    focusMode,
+    sourceMode,
+    bgImage,
+    bgBlur,
+    bgDim,
+    glassBlur,
+    glassOpacity,
+    setBgImage,
+    setBgBlur,
+    setBgDim,
+    setGlassBlur,
+    setGlassOpacity,
+    resetBackground,
     toggleTheme,
     cycleFontSize,
-    toggleFocusMode,
+    toggleSourceMode: toggleSourceModeRaw,
   } = useSettings();
+
+  // 外观设置弹窗显隐(悬浮球「外观设置」入口)
+  const [bgSettingsOpen, setBgSettingsOpen] = useState(false);
+
+  // 源码模式:SourceView ref(供 flushSource 调 flush) + editor 就绪标志
+  // (冷启动持久化源码模式时,需等 Milkdown ready 再挂 SourceView,避免 getMarkdown 返回空)
+  const sourceViewRef = useRef<SourceViewHandle>(null);
+  const [editorReady, setEditorReady] = useState(false);
+  // 源码模式内容同步:切 tab/保存前由 useFile 调用,把 textarea 内容写回 Milkdown
+  const flushSource = useCallback(() => {
+    if (sourceMode) sourceViewRef.current?.flush();
+  }, [sourceMode]);
+
+  // 源码模式滚动比例:toggle 前同步捕获/恢复,绕过 CSS 隐藏 Milkdown 导致
+  // .editor-wrap 滚动位置塌缩的时序问题(切到 source-mode 后 wrap.scrollHeight
+  // 立即塌缩,useEffect 读到的 scrollTop 已是 0)。
+  // - 进入源码:toggle 前(此时 sourceMode=false)从 wrap 读比例存 ref,
+  //   SourceView mount 后按比例设 textarea.scrollTop
+  // - 退出源码:toggle 前(此时 sourceMode=true)从 textarea 读比例存 ref,
+  //   unmount cleanup 后按比例设 wrap.scrollTop
+  const pendingScrollRatio = useRef(0);
+  const toggleSourceMode = useCallback(() => {
+    // toggle 前捕获当前滚动比例(sourceMode 是切换前的值)
+    if (!sourceMode) {
+      // 即将进入源码:读 wrap 比例(此时 Milkdown 仍在,scrollHeight 未塌缩)
+      const wrap = wrapRef.current;
+      if (wrap) {
+        const max = wrap.scrollHeight - wrap.clientHeight;
+        pendingScrollRatio.current = max > 0 ? wrap.scrollTop / max : 0;
+      }
+    }
+    // 即将退出源码:SourceView 自身的 onScroll 已持续更新 ref,无需捕获
+    toggleSourceModeRaw();
+  }, [sourceMode, toggleSourceModeRaw]);
 
   // 主题变化:联动 Shiki 代码高亮 + Mermaid 图表主题
   useEffect(() => {
@@ -98,7 +145,7 @@ function App() {
     onMdChange,
     pendingRename,
     clearPendingRename,
-  } = useFile(editorRef, wrapRef);
+  } = useFile(editorRef, wrapRef, flushSource);
 
   // 快捷键:Cmd/Ctrl+S 保存、+Shift 另存为、+O 打开、+N 新建
   useKeyboardShortcuts({
@@ -129,6 +176,7 @@ function App() {
   );
   const onEditorReady = useCallback(() => {
     editorReadyRef.current = true;
+    setEditorReady(true);
     const pending = pendingOpenRef.current;
     if (pending.length > 0) {
       pendingOpenRef.current = [];
@@ -150,14 +198,13 @@ function App() {
     };
   }, [consumeOpenFiles]);
 
-  // 顶部标签偏移:展开时对齐内容区左边缘(sidebar+16);
-  // mac 收起时贴近展开按钮右侧(mac 按钮右缘约108),win 收起时避开左侧展开按钮。
-  // 收起态额外给主题切换按钮(32 宽 + 8 间距)让位:win 48→88,mac 118→156。
+  // 顶部标签偏移:展开时贴侧栏右缘(app-body 无 padding/gap);
+  // 收起时给主题切换按钮让位(win 116,mac 156 含 traffic-light 避让)。
   const tabsMarginLeft = sidebarCollapsed
     ? isWindows
       ? 88
       : 156
-    : sidebarWidth + 16;
+    : sidebarWidth;
 
   // 点击编辑区内图片:打开放大预览
   const onEditorClick = useCallback((e: React.MouseEvent) => {
@@ -350,6 +397,8 @@ function App() {
     if (t.isContentEditable) return;
     // 欢迎页内的点击(按钮等)交由原生处理,不抢焦点、不 preventDefault
     if (t.closest(".welcome")) return;
+    // 源码模式:textarea 需保留焦点才能输入,不抢焦点、不 preventDefault
+    if (t.closest(".source-view")) return;
     e.preventDefault();
     editorRef.current?.focusEditor();
   }, [editorRef]);
@@ -367,8 +416,12 @@ function App() {
   }, []);
 
   return (
-    <div
-      className={`app${sidebarCollapsed ? " sidebar-collapsed" : ""}`}
+    <>
+      {/* 背景层:用户上传图片 + 模糊 + 遮罩,固定铺满视口,位于所有容器之下。
+          各容器半透明 → 透出本层 → 毛玻璃质感。无图时透明,露出 body 兜底色。 */}
+      <div className="bg-layer" />
+      <div
+      className={`app${sidebarCollapsed ? " sidebar-collapsed" : ""}${bgImage ? " has-bg" : ""}${sourceMode ? " source-mode" : ""}`}
       style={
         {
           "--sidebar-w": `${effectiveSidebarWidth}px`,
@@ -546,6 +599,19 @@ function App() {
             <ErrorBoundary>
               <MarkdownEditor ref={editorRef} onChange={onMdChange} onReady={onEditorReady} />
             </ErrorBoundary>
+            {/* 源码模式:等宽字体 textarea 承载 md 原文,绝对定位覆盖 Milkdown。
+                渲染条件含 editorReady:冷启动持久化源码模式时等 Milkdown 就绪再挂载,
+                避免 getMarkdown 返回空。 */}
+            {sourceMode && activeTabId && editorReady && (
+              <SourceView
+                ref={sourceViewRef}
+                editorRef={editorRef}
+                activeTabId={activeTabId}
+                onMdChange={onMdChange}
+                scrollContainerRef={wrapRef}
+                initialScrollRatio={pendingScrollRatio}
+              />
+            )}
             {/* 无 tab,或当前为空白未命名未改时显示欢迎页(覆盖层) */}
             {(!activeTabId || (activeTab?.path === null && !activeTab.dirty)) && (
               <Welcome onOpenFile={() => void openFile()} onOpenFolder={() => void openFolder()} />
@@ -562,10 +628,11 @@ function App() {
             onScrollToTop={onScrollToTop}
             fontSize={fontSize}
             onCycleFontSize={cycleFontSize}
-            focusMode={focusMode}
-            onToggleFocusMode={toggleFocusMode}
+            sourceMode={sourceMode}
+            onToggleSourceMode={toggleSourceMode}
             sidebarCollapsed={sidebarCollapsed}
             onToggleSidebar={() => setSidebarCollapsed((v) => !v)}
+            onOpenBgSettings={() => setBgSettingsOpen(true)}
           />
         </main>
       </div>
@@ -576,6 +643,24 @@ function App() {
         onClose={closeCtx}
       />
 
+      {/* 外观设置弹窗:背景图 + 毛玻璃参数(悬浮球入口) */}
+      {bgSettingsOpen && (
+        <SettingsModal
+          bgImage={bgImage}
+          bgBlur={bgBlur}
+          bgDim={bgDim}
+          glassBlur={glassBlur}
+          glassOpacity={glassOpacity}
+          onSetBgImage={setBgImage}
+          onSetBgBlur={setBgBlur}
+          onSetBgDim={setBgDim}
+          onSetGlassBlur={setGlassBlur}
+          onSetGlassOpacity={setGlassOpacity}
+          onReset={resetBackground}
+          onClose={() => setBgSettingsOpen(false)}
+        />
+      )}
+
       {/* 图片放大预览层 */}
       {preview && (
         <div className="img-lightbox" onClick={() => setPreview(null)}>
@@ -583,6 +668,7 @@ function App() {
         </div>
       )}
     </div>
+    </>
   );
 }
 

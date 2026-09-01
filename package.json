@@ -22,6 +22,7 @@
     "mermaid": "^11.16.1",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
+    "remark-highlight-mark": "^1.4.0",
     "remark-math": "^6.0.0",
     "shiki": "^4.4.3"
   },
