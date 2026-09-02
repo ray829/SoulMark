@@ -66,6 +66,8 @@ class MermaidView implements NodeView {
   contentDOM: null = null;
   private node: Node;
   private cancelled = false;
+  /** 渲染代次:每次 render 自增。await 后若 gen 已过期,说明被新 render 取代,放弃写入。 */
+  private generation = 0;
 
   constructor(node: Node) {
     this.node = node;
@@ -76,6 +78,7 @@ class MermaidView implements NodeView {
   }
 
   private async render(): Promise<void> {
+    const gen = ++this.generation;
     const code = this.node.textContent;
     // 同步 fallback(原码),mermaid 加载/渲染前显示
     this.dom.innerHTML = `<pre class="mermaid-fallback"><code>${escapeHtml(
@@ -83,9 +86,13 @@ class MermaidView implements NodeView {
     )}</code></pre>`;
     try {
       const m = await loadMermaid();
+      // 加载期间可能被 update 触发的新 render 取代,或被 destroy 取消
+      if (this.cancelled || gen !== this.generation) return;
       const id = `mermaid-svg-${++idCounter}`;
       const { svg } = await m.default.render(id, code);
-      if (!this.cancelled) this.dom.innerHTML = svg;
+      // 写入前再查:render 是异步的,旧 render 完成时新 render 可能已覆盖,需避免回写
+      if (this.cancelled || gen !== this.generation) return;
+      this.dom.innerHTML = svg;
     } catch {
       /* keep fallback(语法错误显示原码) */
     }
@@ -100,7 +107,7 @@ class MermaidView implements NodeView {
     if (newNode.type !== this.node.type) return false;
     const changed = newNode.textContent !== this.node.textContent;
     this.node = newNode;
-    if (changed) void this.render();
+    if (changed) void this.render(); // generation 自增,自动作废进行中的旧 render
     return true;
   }
 

@@ -83,6 +83,9 @@ export function useFile(
   const setRootDirBoth = useCallback((dir: string | null) => {
     rootDirRef.current = dir;
     setRootDir(dir);
+    // 切换文件夹:兜底全刷(fsChange=null → shouldReloadChildren 恒 true)。
+    // 否则旧 fsChange(指向原文件夹的路径)会让新文件夹的 shouldReloadChildren 误判为 false → 不重读 → 卡在"加载中"。
+    setFsChange(null);
   }, []);
 
   const nextId = () => ++tabIdRef.current;
@@ -519,14 +522,24 @@ export function useFile(
         }
         try {
           await writeFile(cur.path, md);
-          // 条件保护:仅当该 tab 的 markdown 在 writeFile 期间未被更新(即仍是 md)时才清 dirty。
-          // 若期间用户编辑+flush 或另存为改了 markdown,保留 dirty 让后续 timer 重新保存,避免旧值覆盖新内容。
+          // 保存成功后清 dirty。active tab 以 editor 当前内容为准:
+          // 若 writeFile 期间用户又输入了(latest !== md),保留 dirty 让下次 timer 重存新内容;
+          // 否则同步 markdown 为 md 并清 dirty —— 否则 active tab 的 markdown 是 stale 旧值,
+          // 恒不等于 md → dirty 清不掉 → setTabsBoth 产生新数组 → effect 重跑 → 死循环每 1.5s 重写盘。
+          // 非 active tab 的 markdown 在切走时已 flush,等于 md 即无新编辑,直接清 dirty。
+          const latest = activeTabIdRef.current === cur.id
+            ? editorRef.current?.getMarkdown()
+            : undefined;
           setTabsBoth((prev) =>
-            prev.map((x) =>
-              x.id === cur.id && x.markdown === md
-                ? { ...x, dirty: false }
-                : x,
-            ),
+            prev.map((x) => {
+              if (x.id !== cur.id) return x;
+              if (latest !== undefined) {
+                return latest !== md
+                  ? { ...x, dirty: true, markdown: latest }
+                  : { ...x, dirty: false, markdown: md };
+              }
+              return x.markdown === md ? { ...x, dirty: false } : x;
+            }),
           );
         } catch (err) {
           await showError("自动保存", err);

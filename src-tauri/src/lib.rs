@@ -114,16 +114,18 @@ pub fn run() {
                         .extend(files);
                 }
             }
-            // Windows 无系统标题栏,由前端自绘窗口控制按钮;macOS 保留原生红绿灯
-            #[cfg(windows)]
-            {
-                if let Some(window) = app.get_webview_window("main") {
+            // 窗口 config 设 visible:false,此处装饰就绪后再 show(),避免 Windows 首帧原生标题栏闪烁
+            // (set_decorations 在窗口首帧可见前完成)。Windows:去装饰 + 前端自绘控件;macOS 保留原生红绿灯。
+            if let Some(window) = app.get_webview_window("main") {
+                #[cfg(windows)]
+                {
                     if let Err(e) = window.set_decorations(false) {
                         log::error!("set_decorations failed: {e}");
                     }
                 }
+                let _ = window.show();
             }
-            // 非 windows 平台无需使用 app,显式标注消除未使用警告
+            // 非 windows 平台 set_decorations 不调用,app 已用于 show,无需额外标注
             let _ = app;
             log::info!("Soul Mark backend started");
             Ok(())

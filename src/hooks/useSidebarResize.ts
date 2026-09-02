@@ -21,12 +21,15 @@ export function useSidebarResize(initial = 264) {
     const startW = sidebarWidthRef.current;
     const resizer = e.currentTarget as HTMLElement;
     resizer.classList.add("dragging");
+    // 标记拖拽中:CSS 据此禁用 .sidebar/.topbar-tabs-wrap 的宽度过渡,避免粘滞滞后
+    document.body.classList.add("sidebar-resizing");
     const onMove = (ev: MouseEvent) => {
       const w = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, startW + (ev.clientX - startX)));
       setSidebarWidth(w);
     };
     const onUp = () => {
       resizer.classList.remove("dragging");
+      document.body.classList.remove("sidebar-resizing");
       document.body.style.cursor = "";
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);

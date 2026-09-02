@@ -16,6 +16,7 @@ import { useFile } from "./hooks/useFile";
 import { useSidebarResize } from "./hooks/useSidebarResize";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useSettings } from "./hooks/useSettings";
+import { useTrafficLightInset } from "./hooks/useTrafficLightInset";
 import { setShikiTheme } from "./components/editor-views/ShikiHighlightPlugin";
 import { setMermaidTheme } from "./components/editor-views/MermaidView";
 import { SourceView, type SourceViewHandle } from "./components/SourceView";
@@ -64,6 +65,9 @@ function App() {
     cycleFontSize,
     toggleSourceMode: toggleSourceModeRaw,
   } = useSettings();
+
+  // macOS 红绿灯避让:写 --traffic-left(非 mac/全屏时为 0),供顶栏各元素偏移引用。
+  useTrafficLightInset();
 
   // 外观设置弹窗显隐(悬浮球「外观设置」入口)
   const [bgSettingsOpen, setBgSettingsOpen] = useState(false);
@@ -185,26 +189,29 @@ function App() {
   }, [openByPath]);
   useEffect(() => {
     let unlisten: (() => void) | undefined;
+    let disposed = false;
     invoke<string[]>("opened_files")
       .then(consumeOpenFiles)
       .catch(() => {});
     listen<string[]>("opened-files", (e) => consumeOpenFiles(e.payload))
       .then((u) => {
-        unlisten = u;
+        // 竞态保护:卸载先于 listen resolve 时,unlisten 仍 undefined → cleanup 漏清理 → 泄漏。
+        if (disposed) u();
+        else unlisten = u;
       })
       .catch(() => {});
     return () => {
+      disposed = true;
       unlisten?.();
     };
   }, [consumeOpenFiles]);
 
-  // 顶部标签偏移:展开时贴侧栏右缘(app-body 无 padding/gap);
-  // 收起时给主题切换按钮让位(win 116,mac 156 含 traffic-light 避让)。
-  const tabsMarginLeft = sidebarCollapsed
-    ? isWindows
-      ? 88
-      : 156
-    : sidebarWidth;
+  // 顶部标签偏移:
+  // - 展开态:贴侧栏右缘(app-body 无 padding/gap),= sidebarWidth
+  // - 收起态:贴主题切换按钮右侧让位(侧栏按钮区 10+30 + 间隙 8 + 主题按钮 30 + 间隙 10 = 88)。
+  //   红绿灯避让(--traffic-left)由 CSS 在 .sidebar-collapsed 时叠加到 margin-left,
+  //   展开态不加(主内容区已在侧栏右侧,再加会错位)。全屏时 --traffic-left=0,自然适配。
+  const tabsMarginLeft = sidebarCollapsed ? 88 : sidebarWidth;
 
   // 点击编辑区内图片:打开放大预览
   const onEditorClick = useCallback((e: React.MouseEvent) => {
@@ -522,14 +529,16 @@ function App() {
             </button>
           )}
         </div>
-        <button
-          className="topbar-tab-add"
-          onClick={newFile}
-          title="新建文件"
-          aria-label="新建文件"
-        >
-          <PlusIcon />
-        </button>
+        {tabs.length > 0 && (
+          <button
+            className="topbar-tab-add"
+            onClick={newFile}
+            title="新建文件"
+            aria-label="新建文件"
+          >
+            <PlusIcon />
+          </button>
+        )}
         {/* Windows 下自绘窗口控制按钮(macOS 用原生红绿灯,不渲染) */}
         {isWindows && <WindowControls />}
       </header>

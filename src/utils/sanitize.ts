@@ -28,6 +28,12 @@ function isSafeUrl(url: string): boolean {
   return true;
 }
 
+/** 校验 URL 协议并返回安全值:危险协议(javascript:/vbscript:/非图片 data:)返回空串,否则原值。
+ *  供 Editor 的 link/image DOM 后处理使用,剥离 Markdown 链接与图片 URL 中的危险协议。 */
+export function sanitizeUrl(url: string): string {
+  return isSafeUrl(url) ? url : "";
+}
+
 function sanitizeElement(el: Element): void {
   // 先递归子节点(取静态副本,避免遍历中删除影响迭代)
   for (const child of Array.from(el.children)) sanitizeElement(child);

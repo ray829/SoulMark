@@ -1,11 +1,11 @@
 /* ===== 设计 token — 图片风格:浅灰底 + 白色圆角卡片 ===== */
 :root {
-  /* 背景层次:页面/侧栏浅灰,主内容白色卡片 */
-  --bg: #f5f6f8;
-  --sidebar-bg: #f5f6f8;
-  --surface: #ffffff;
-  --tab-bg: #e7e9ec;
-  --tab-bg-hover: #dfe2e6;
+  /* 背景层次:页面/侧栏暖浅灰,主内容暖白卡片(柔和护眼,纯白刺眼) */
+  --bg: #f4f3ef;
+  --sidebar-bg: #f4f3ef;
+  --surface: #fdfcf7;
+  --tab-bg: #eceae3;
+  --tab-bg-hover: #e4e1d9;
 
   /* 边框: 极淡 */
   --border: #e2e5e9;
@@ -54,6 +54,10 @@
   --topbar-h: 52px;
   --editor-header-h: 48px;
   --sidebar-w: 264px;
+
+  /* macOS 红绿灯避让:由前端写(trafficLightPosition.x=20 + 按钮组52 + 安全边距8 = 80)。
+     全屏/Windows 时置 0。各顶栏元素以本变量为基准偏移,避免 78/116/156 等独立魔法数。 */
+  --traffic-left: 0px;
 
   /* 动画 */
   --t-fast: 100ms;
@@ -192,7 +196,7 @@ body,
   content: "";
   position: absolute;
   inset: 0;
-  background: rgba(245, 246, 248, 1);
+  background: rgba(244, 243, 239, 1);
   opacity: var(--bg-dim, 0.35);
   transition: opacity var(--t-side) var(--ease);
 }
@@ -212,13 +216,22 @@ body,
   overflow: hidden;
 }
 
-/* ===== 无背景图:容器回归不透明纯白,干净统一 =====
-   纯色背景下半透明(--glass-opacity 默认 0.4)会发灰、顶栏/侧栏/主区出现色差。
-   无图态强制各容器为 --surface 纯白 + 关闭 backdrop-filter,靠阴影 + 顶部高光分层;
-   顶栏=侧栏=主区=标题栏背景完全一致。有背景图(.app.has-bg)时走半透明毛玻璃氛围。 */
+/* ===== 无背景图:还原"浅灰底 + 白色主卡片"分层色调 =====
+   纯色背景下半透明(--glass-opacity 默认 0.4)会发灰、各容器出现色差,故无图态
+   关闭 backdrop-filter 改不透明。色调上顶栏/侧栏回归页面底色(--sidebar-bg 浅灰),
+   主区/浮层为 --surface 纯白卡片浮于浅灰之上,形成经典层次(非全白统一)。
+   有背景图(.app.has-bg)时走半透明毛玻璃氛围。 */
+/* 顶栏/侧栏:与页面底色一致,主区白卡片浮于其上形成分层 */
 .app:not(.has-bg) .topbar,
-.app:not(.has-bg) .sidebar,
+.app:not(.has-bg) .sidebar {
+  background: var(--sidebar-bg);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+/* 主区卡片 + 标题栏 + 各浮层:纯白,干净统一 */
 .app:not(.has-bg) .main-content,
+.app:not(.has-bg) .editor-header,
 .app:not(.has-bg) .editor-wrap,
 .app:not(.has-bg) .welcome,
 .app:not(.has-bg) .ctx-menu,
@@ -274,7 +287,8 @@ body,
 /* 收起/展开侧边栏按钮:绝对定位脱离 flex 流,不挤占标签位置(win 最左,mac 避开红绿灯) */
 .topbar-toggle-sidebar {
   position: absolute;
-  left: 10px;
+  /* mac: --traffic-left(80) + 10 间隙 = 90,避开红绿灯;win: --traffic-left(0) + 10 = 10 */
+  left: calc(var(--traffic-left) + 10px);
   top: 50%;
   transform: translateY(-50%);
   z-index: 1;
@@ -288,7 +302,8 @@ body,
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
-  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease),
+    left var(--t-side) var(--ease);
 }
 
 .topbar-toggle-sidebar:hover {
@@ -296,17 +311,21 @@ body,
   color: var(--text);
 }
 
-/* mac 下避开原生红绿灯(约占左上 0~70px) */
+/* mac 下避开原生红绿灯(约占左上 0~70px):left 由 --traffic-left 基准 + 偏移。
+   红绿灯位置在 tauri.conf.json trafficLightPosition:{x:20,y:28},按钮组宽 52,
+   safeLeft=80 由前端写入 --traffic-left;此规则只保留 mac 特定偏移(=0,基准已含)。 */
 .topbar-toggle-sidebar.mac {
-  left: 78px;
+  left: calc(var(--traffic-left) + 10px);
 }
 
 .topbar-toggle-sidebar svg {
   width: 16px;
   height: 16px;
+  /* 翻转过渡:scaleX 翻面表达"侧栏从左侧收起/展开",带轻微弹性更生动 */
+  transition: transform var(--t-side) var(--ease);
 }
 
-/* 收起态:图标翻转指向右侧 */
+/* 收起态:图标水平翻转,左栏变右栏,指向收起方向 */
 .topbar-toggle-sidebar svg.flipped {
   transform: scaleX(-1);
 }
@@ -314,10 +333,11 @@ body,
 /* ===== 主题切换按钮:太阳/月亮 SVG 图标 =====
    与 .topbar-toggle-sidebar 同一套样式(30×30 方形圆角、16×16 线条 SVG、hover 灰底)。
    形态由当前主题决定(浅色=太阳 SunIcon,暗色=月亮 MoonIcon),点击触发圆形扩散切换主题。
-   定位紧邻侧栏切换按钮右侧:win left:48(=10+30+8),mac left:116(=78+30+8 避红绿灯)。 */
+   定位紧邻侧栏切换按钮右侧:基准 --traffic-left + 偏移(10+30+8=48),
+   mac 与 .topbar-toggle-sidebar.mac 同步用 --traffic-left 避红绿灯。 */
 .theme-toggle {
   position: absolute;
-  left: 48px;
+  left: calc(var(--traffic-left) + 48px);
   top: 50%;
   transform: translateY(-50%);
   z-index: 1;
@@ -331,12 +351,13 @@ body,
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
-  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease),
+    left var(--t-side) var(--ease);
 }
 
-/* mac 下避开原生红绿灯,与 .topbar-toggle-sidebar.mac 同步左移 */
+/* mac 下避开原生红绿灯,与 .topbar-toggle-sidebar.mac 同步用 --traffic-left 基准 */
 .theme-toggle.mac {
-  left: 116px;
+  left: calc(var(--traffic-left) + 48px);
 }
 
 .theme-toggle:hover {
@@ -379,9 +400,18 @@ body,
   position: relative;
   flex: 0 1 auto;
   min-width: 0;
+  /* 展开态:margin-left = --tabs-ml(=sidebarWidth),贴侧栏右缘,与主内容区左缘对齐。
+     不加 --traffic-left:主内容区已在侧栏右侧,左缘=sidebarWidth,再加红绿灯避让会右移错位。 */
   margin-left: var(--tabs-ml);
+  /* 侧栏收起/展开时跟随 --tabs-ml 平滑滑动;拖拽时由 body.sidebar-resizing 禁用 */
+  transition: margin-left var(--t-side) var(--ease);
   display: flex;
   align-items: center;
+}
+/* 收起态:侧栏宽 0,页签需让位红绿灯(--traffic-left)+ 固定按钮区(--tabs-ml 含让位)。
+   全屏时 --traffic-left=0,自动退化为纯按钮让位,无需额外规则。 */
+.app.sidebar-collapsed .topbar-tabs-wrap {
+  margin-left: calc(var(--traffic-left) + var(--tabs-ml));
 }
 .topbar-tabs {
   position: relative;
@@ -541,6 +571,8 @@ body,
   position: relative;
   z-index: 1;
   margin-left: auto;
+
+  flex-shrink: 0; /* 窗口极窄时不被压缩,避免按钮变形/溢出(minWidth:800 已兜底,双保险) */
   display: flex;
   align-items: center;
   gap: 2px;
@@ -582,6 +614,8 @@ body,
   position: relative;
   z-index: 2; /* 高于主区:侧栏向右投影需落在主区之上才可见 */
   width: var(--sidebar-w);
+  /* 收起/展开时宽度平滑过渡;拖拽调整时由 body.sidebar-resizing 禁用,避免粘滞滞后 */
+  transition: width var(--t-side) var(--ease);
   /* flex-shrink:1 — 窗口偏窄时侧栏主动收缩,把空间让给主内容区,
      配合 .main-content 的 min-width,保证主区达到最小可读宽度而不溢出/不横向滚动。
      宽窗口下侧栏仍按 --sidebar-w 正常显示,拖拽 clamp(180~320)不受影响。 */
@@ -601,6 +635,14 @@ body,
   box-shadow: var(--shadow-sidebar);
   -webkit-user-select: none;
   user-select: none;
+}
+
+/* 拖拽调整侧栏宽度时禁用宽度/边距过渡:--sidebar-w 随鼠标实时变化,
+   有过渡会产生粘滞滞后,手感发飘。收起/展开切换不经过此态,过渡照常生效。 */
+body.sidebar-resizing .sidebar,
+body.sidebar-resizing .topbar-tabs-wrap,
+body.sidebar-resizing .main-content {
+  transition: none;
 }
 
 /* 可拖拽分隔条:绑定内容区左侧边框,平时不可见,悬浮/拖动时加深分割线 */
@@ -966,6 +1008,10 @@ body,
   min-width: 360px;
   /* 负 margin:主区向左上扩展,把左上圆角"咬"进顶栏/侧栏 */
   margin: -2px 0 0 -2px;
+  /* 侧栏收起/展开时主区宽度随 flex 重分配平滑过渡(过渡 flex-basis 兜底逐帧抖动;
+     主区 width 由 flex:1 间接确定,无需也不能直接过渡 width)。
+     拖拽调整时由 body.sidebar-resizing 禁用,避免粘滞滞后。 */
+  transition: flex-basis var(--t-side) var(--ease);
   display: flex;
   flex-direction: column;
   /* 毛玻璃主卡片:半透明 + backdrop,透出背景层。仅左上角圆角,其余三角直角。 */
@@ -1974,7 +2020,6 @@ body,
 .outline-tick-row[data-active="true"] .outline-tick {
   background: var(--accent);
   opacity: 1;
-  box-shadow: 0 0 8px var(--accent);
 }
 
 /* hover 浮层:流内子元素,紧贴刻度尺左缘(与刻度尺相邻无间隙,防 mouseleave 往复)。

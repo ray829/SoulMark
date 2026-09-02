@@ -98,13 +98,18 @@ export function Sidebar({
 
   // 根级子项:受 fsChange 控制局部刷新,未受影响时跳过 readDir
   useEffect(() => {
-    setRoots(null);
-    setError(null);
-    if (!rootDir) return;
-    if (!shouldReloadChildren(rootDir, fsChange)) {
-      // 保留已有 roots,不重读
+    if (!rootDir) {
+      setRoots(null);
+      setError(null);
       return;
     }
+    if (!shouldReloadChildren(rootDir, fsChange)) {
+      // 保留已有 roots,不重读。注意:不可在判断前 setRoots(null),
+      // 否则此处 return 后 roots 永久为 null,侧栏卡在"加载中…"。
+      return;
+    }
+    setRoots(null);
+    setError(null);
     let cancelled = false;
     readChildren(rootDir)
       .then((n) => {

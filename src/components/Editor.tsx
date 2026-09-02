@@ -24,7 +24,7 @@ import { mermaidPlugins } from "./editor-views/MermaidView";
 import { markPlugins } from "./editor-views/MarkView";
 import { selectionTrackerPlugin } from "./editor-views/SelectionTrackerPlugin";
 import { SelectionToolbar } from "./SelectionToolbar";
-import { sanitizeHtml } from "../utils/sanitize";
+import { sanitizeHtml, sanitizeUrl } from "../utils/sanitize";
 import "katex/dist/katex.min.css";
 import "../styles/editor.css";
 
@@ -156,15 +156,35 @@ const InnerEditor = forwardRef<EditorHandle, EditorProps>(function InnerEditor(
       span.dataset.processed = "1";
     };
 
+    // link/image URL 协议清理:剥离 Markdown [x](javascript:…) / ![](javascript:…) 的危险协议。
+    // 原始 HTML 块已由 sanitizeHtml 处理,此处覆盖 commonmark link mark / image node 渲染出的 <a>/<img>。
+    // 仅改 DOM 不改 doc(ProseMirror 重渲染时用原值,不触发 onMdChange/自动保存),作渲染层纵深防御:
+    // CSP script-src 'self' 已拦 javascript: 执行,此处挡 URL 本身,防未来 CSP 放松成存储型 XSS。
+    const fixUrlAttr = (el: HTMLElement) => {
+      if (el.tagName === "A") {
+        const href = el.getAttribute("href");
+        if (href != null && href !== sanitizeUrl(href)) el.setAttribute("href", "");
+      } else if (el.tagName === "IMG") {
+        const src = el.getAttribute("src");
+        if (src != null && src !== sanitizeUrl(src)) el.setAttribute("src", "");
+      }
+    };
+    const sanitizeUrlEls = (scope: HTMLElement) => {
+      scope.querySelectorAll<HTMLElement>("a[href], img[src]").forEach(fixUrlAttr);
+    };
+
     root.querySelectorAll<HTMLElement>("span[data-type='html']").forEach(fixHtmlNode);
+    sanitizeUrlEls(root);
 
     const obs = new MutationObserver((mutations) => {
       for (const m of mutations) {
         for (const node of Array.from(m.addedNodes)) {
-          if (node instanceof HTMLElement) {
-            if (node.matches?.("span[data-type='html']")) fixHtmlNode(node);
-            node.querySelectorAll("span[data-type='html']").forEach((el) => fixHtmlNode(el as HTMLElement));
-          }
+          if (!(node instanceof HTMLElement)) continue;
+          if (node.matches?.("span[data-type='html']")) fixHtmlNode(node);
+          node.querySelectorAll("span[data-type='html']").forEach((el) => fixHtmlNode(el as HTMLElement));
+          // 新增/重渲染的 a/img 同步清理危险协议
+          if (node.matches?.("a[href], img[src]")) fixUrlAttr(node);
+          sanitizeUrlEls(node);
         }
       }
     });

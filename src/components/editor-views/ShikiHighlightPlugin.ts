@@ -54,6 +54,14 @@ export function getShikiTheme() {
 
 const highlightKey = new PluginKey("shiki-highlight");
 
+/* token 缓存:ProseMirror 节点不可变,编辑某块时仅该 block node 被替换,其余 block node 引用不变。
+   以 node 为 WeakMap key 缓存其 token 化结果(text+lang+theme 一致即命中),
+   避免每次按键对所有代码块全量 codeToTokens(大文档主线程卡顿的根因)。
+   position 仍每次重算(便宜),仅 token 化(贵)走缓存。theme 切换时 key 含 theme,自动失效。 */
+type ShikiToken = { content: string; color?: string };
+type BlockCache = { text: string; lang: string; theme: string; tokens: ShikiToken[][] };
+const tokenCache = new WeakMap<PmNode, BlockCache>();
+
 /* 遍历 doc 中所有 code_block,对每个块的文本做 token 化,
    用 inline decoration 给每个 token 染色。
    pos 从 block.pos+1 起算(block 节点起始位置 +1 进入内部文本),
@@ -76,32 +84,40 @@ function buildDecorations(
     const lang = language && loaded.includes(language) ? language : "";
     if (!lang) continue; // 无语言或语言包未加载:不着色,退化为普通文本(不抖动)
 
+    // 命中缓存则复用 token,未命中才 codeToTokens(大文档按键只重算被编辑的块)
+    let cache = tokenCache.get(block.node);
+    if (!cache || cache.text !== text || cache.lang !== lang || cache.theme !== currentTheme) {
+      try {
+        // lang 已由 getLoadedLanguages() 运行时校验,断言为 shiki 期望的字面量联合类型
+        const { tokens } = hl.codeToTokens(text, {
+          lang: lang as never,
+          theme: currentTheme,
+        });
+        cache = { text, lang, theme: currentTheme, tokens: tokens as unknown as ShikiToken[][] };
+        tokenCache.set(block.node, cache);
+      } catch {
+        /* 单块 token 化失败跳过,不影响其他块 */
+        continue;
+      }
+    }
+
     const textStart = block.pos + 1; // code_block 起始标记占 1,内部文本从 +1 起
     const textEnd = textStart + text.length;
     let pos = textStart;
 
-    try {
-      // lang 已由 getLoadedLanguages() 运行时校验,断言为 shiki 期望的字面量联合类型
-      const { tokens } = hl.codeToTokens(text, {
-        lang: lang as never,
-        theme: currentTheme,
-      });
-      for (const line of tokens) {
-        for (const token of line) {
-          const len = token.content.length;
-          if (len > 0 && pos + len <= textEnd) {
-            decorations.push(
-              Decoration.inline(pos, pos + len, {
-                style: `color: ${token.color}`,
-              }),
-            );
-          }
-          pos += len;
+    for (const line of cache.tokens) {
+      for (const token of line) {
+        const len = token.content.length;
+        if (len > 0 && pos + len <= textEnd) {
+          decorations.push(
+            Decoration.inline(pos, pos + len, {
+              style: `color: ${token.color}`,
+            }),
+          );
         }
-        pos += 1; // 行间换行符占 1
+        pos += len;
       }
-    } catch {
-      /* 单块 token 化失败跳过,不影响其他块 */
+      pos += 1; // 行间换行符占 1
     }
   }
 

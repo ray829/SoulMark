@@ -42,6 +42,18 @@ function readStoredNum(key: string, fallback: number, min: number, max: number):
   }
 }
 
+/** 读取布尔型设置(localStorage 存 string "true"/"false",需转回布尔,否则 "false" 也是 truthy)。 */
+function readStoredBool(key: string, fallback: boolean): boolean {
+  try {
+    const v = localStorage.getItem(key);
+    if (v === "true") return true;
+    if (v === "false") return false;
+    return fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 /** 读取字符串型设置(背景图 URL)。 */
 function readStoredStr(key: string, fallback: string): string {
   try {
@@ -66,12 +78,16 @@ export function useSettings() {
   const [theme, setTheme] = useState<ThemeMode>(() =>
     readStored<ThemeMode>(LS_THEME, defaultTheme(), isThemeMode),
   );
-  const [fontSize, setFontSize] = useState<number>(() =>
-    readStored<number>(LS_FONT_SIZE, 16, (v): v is number => typeof v === "number" && FONT_SIZES.includes(v as 15 | 16 | 18)),
-  );
-  const [sourceMode, setSourceMode] = useState<boolean>(() =>
-    readStored<boolean>(LS_SOURCE_MODE, false, (v): v is boolean => v === "true" || v === "false"),
-  );
+  const [fontSize, setFontSize] = useState<number>(() => {
+    // localStorage 存 string,需 Number 转换后再校验是否在档位内,否则校验恒失败、永远 fallback。
+    try {
+      const n = Number(localStorage.getItem(LS_FONT_SIZE));
+      return FONT_SIZES.includes(n as 15 | 16 | 18) ? n : 16;
+    } catch {
+      return 16;
+    }
+  });
+  const [sourceMode, setSourceMode] = useState<boolean>(() => readStoredBool(LS_SOURCE_MODE, false));
 
   // 背景与毛玻璃参数
   const [bgImage, setBgImageState] = useState<string>(() => readStoredStr(LS_BG_IMAGE, ""));

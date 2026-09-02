@@ -43,14 +43,18 @@ export function WindowControls() {
   useEffect(() => {
     const win = getCurrentWindow();
     let unlisten: (() => void) | null = null;
+    let disposed = false;
     const refresh = () => {
       void win.isMaximized().then(setMaximized).catch(() => {});
     };
     refresh();
+    // 竞态保护:卸载发生在 onResized resolve 前时,unlisten 仍为 null → cleanup 漏清理 → 泄漏。
     void win.onResized(refresh).then((u) => {
-      unlisten = u;
+      if (disposed) u();
+      else unlisten = u;
     });
     return () => {
+      disposed = true;
       unlisten?.();
     };
   }, []);
