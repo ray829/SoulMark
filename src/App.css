@@ -1,3 +1,36 @@
+/* ===== @property:主题色可插值过渡(替代 View Transitions 快照方案) =====
+   原生 CSS 自定义属性默认为离散值(切换瞬间跳变)。用 @property 注册为
+   <color> 后,浏览器可对其做颜色插值——data-theme 切换时所有主题色平滑过渡,
+   全程真实 DOM,无快照:滚动条不再被遮挡闪烁,背景半透明分层不失真。
+   --glass-opacity 等动态滑块变量不注册(避免拖动延迟)。阴影类是 box-shadow
+   复合值,无 <color> syntax 可用,主题切换时瞬切(视觉影响小)。
+   initial-value 仅占位(:root 已显式赋值),但 syntax 要求不含 var()。 */
+@property --bg { syntax: '<color>'; inherits: true; initial-value: #f4f3ef; }
+@property --sidebar-bg { syntax: '<color>'; inherits: true; initial-value: #f4f3ef; }
+@property --surface { syntax: '<color>'; inherits: true; initial-value: #fdfcf7; }
+@property --tab-bg { syntax: '<color>'; inherits: true; initial-value: #eceae3; }
+@property --tab-bg-hover { syntax: '<color>'; inherits: true; initial-value: #e4e1d9; }
+@property --border { syntax: '<color>'; inherits: true; initial-value: #e2e5e9; }
+@property --border-hover { syntax: '<color>'; inherits: true; initial-value: #cdd2d8; }
+@property --text { syntax: '<color>'; inherits: true; initial-value: #1f2328; }
+@property --text-secondary { syntax: '<color>'; inherits: true; initial-value: #57606a; }
+@property --text-tertiary { syntax: '<color>'; inherits: true; initial-value: #8b949e; }
+@property --accent { syntax: '<color>'; inherits: true; initial-value: #2563eb; }
+@property --accent-bg { syntax: '<color>'; inherits: true; initial-value: rgba(37, 99, 235, 0.08); }
+@property --hover { syntax: '<color>'; inherits: true; initial-value: rgba(0, 0, 0, 0.04); }
+@property --hover-active { syntax: '<color>'; inherits: true; initial-value: rgba(0, 0, 0, 0.07); }
+@property --active-bg { syntax: '<color>'; inherits: true; initial-value: #e9ecef; }
+@property --active-fg { syntax: '<color>'; inherits: true; initial-value: #1f2328; }
+@property --warning { syntax: '<color>'; inherits: true; initial-value: #d4a72c; }
+@property --danger { syntax: '<color>'; inherits: true; initial-value: #cf222e; }
+@property --danger-bg { syntax: '<color>'; inherits: true; initial-value: rgba(207, 34, 46, 0.08); }
+@property --scrollbar-thumb { syntax: '<color>'; inherits: true; initial-value: #cdd2d8; }
+@property --scrollbar-thumb-hover { syntax: '<color>'; inherits: true; initial-value: #aeb4bb; }
+@property --surface-translucent { syntax: '<color>'; inherits: true; initial-value: rgba(255, 255, 255, 0.95); }
+@property --surface-glass { syntax: '<color>'; inherits: true; initial-value: rgba(255, 255, 255, 0.85); }
+@property --surface-glass-reader { syntax: '<color>'; inherits: true; initial-value: rgba(255, 255, 255, 0.95); }
+@property --surface-glass-float { syntax: '<color>'; inherits: true; initial-value: rgba(255, 255, 255, 1); }
+
 /* ===== 设计 token — 图片风格:浅灰底 + 白色圆角卡片 ===== */
 :root {
   /* 背景层次:页面/侧栏暖浅灰,主内容暖白卡片(柔和护眼,纯白刺眼) */
@@ -65,6 +98,8 @@
   --ease: cubic-bezier(0.4, 0, 0.2, 1);
   /* 弹性回弹:用于悬浮球扇形展开/收起,带轻微 overshoot */
   --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  /* 主题切换颜色过渡时长(@property 注册的主题色 var() 用) */
+  --t-theme: 400ms;
 
   /* ===== 高级感:自定义背景图 + 毛玻璃 =====
      --bg-image/--bg-blur/--bg-dim/--glass-blur/--glass-opacity 由 useSettings
@@ -91,6 +126,35 @@
   --shadow-sidebar: 1px 0 0 rgba(0, 0, 0, 0.04), 3px 0 12px rgba(0, 0, 0, 0.08);
   /* 顶部高光:模拟光线从上方打来,毛玻璃"玻璃光感"来源,去边框后的精致点睛 */
   --highlight-top: inset 0 1px 0 rgba(255, 255, 255, 0.5);
+
+  /* 主题色平滑过渡:@property 注册为 <color> 的变量,数据主题切换时自动插值。
+     全程真实 DOM,无快照遮挡(滚动条/背景分层不受影响)。 */
+  transition:
+    --bg var(--t-theme) var(--ease),
+    --sidebar-bg var(--t-theme) var(--ease),
+    --surface var(--t-theme) var(--ease),
+    --tab-bg var(--t-theme) var(--ease),
+    --tab-bg-hover var(--t-theme) var(--ease),
+    --border var(--t-theme) var(--ease),
+    --border-hover var(--t-theme) var(--ease),
+    --text var(--t-theme) var(--ease),
+    --text-secondary var(--t-theme) var(--ease),
+    --text-tertiary var(--t-theme) var(--ease),
+    --accent var(--t-theme) var(--ease),
+    --accent-bg var(--t-theme) var(--ease),
+    --hover var(--t-theme) var(--ease),
+    --hover-active var(--t-theme) var(--ease),
+    --active-bg var(--t-theme) var(--ease),
+    --active-fg var(--t-theme) var(--ease),
+    --warning var(--t-theme) var(--ease),
+    --danger var(--t-theme) var(--ease),
+    --danger-bg var(--t-theme) var(--ease),
+    --scrollbar-thumb var(--t-theme) var(--ease),
+    --scrollbar-thumb-hover var(--t-theme) var(--ease),
+    --surface-translucent var(--t-theme) var(--ease),
+    --surface-glass var(--t-theme) var(--ease),
+    --surface-glass-reader var(--t-theme) var(--ease),
+    --surface-glass-float var(--t-theme) var(--ease);
 }
 
 /* ===== 暗色主题:覆盖 token =====
@@ -1543,15 +1607,17 @@ body.sidebar-resizing .main-content {
   border-color: var(--border-hover);
 }
 
+/* primary:与搜索框(.nav-search)统一配色(tab-bg 浅灰底、无边框),
+   不再用蓝色强调,保持整体视觉一致 */
 .sidebar-btn.primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
+  background: var(--tab-bg);
+  border-color: transparent;
+  color: var(--text);
 }
 
 .sidebar-btn.primary:hover {
-  filter: brightness(0.93);
-  border-color: var(--accent);
+  background: var(--hover-active);
+  border-color: transparent;
 }
 
 /* ===== 滚动条 ===== */
@@ -1598,59 +1664,6 @@ body.sidebar-resizing .main-content {
   *::after {
     transition-duration: 0s !important;
     animation-duration: 0s !important;
-  }
-}
-
-/* ===== 主题切换:圆形扩散/收回过渡(View Transitions API) =====
-   点击主题按钮切换主题,圆形从按钮中心扩散或收回:
-   - 进入暗色(light→dark):新视图(暗色)从圆心扩散覆盖旧视图(亮色)— 展开
-   - 退出暗色(dark→light):旧视图(暗色)从全屏收缩回圆心,露出新视图(亮色)— 收回
-   圆心 --theme-tx/--theme-ty 由 ThemeToggleButton 点击时写入(按钮几何中心,视口坐标)。
-   方向标记 data-theme-dir 由点击时写入(enter-dark / leave-dark),动画结束后清除。
-   不支持 startViewTransition 的 webview 直接切换(无动画)。 */
-
-/* 默认(进入暗色):新视图扩散,旧视图不动在下 */
-::view-transition-old(root) {
-  animation: none;
-  z-index: 0;
-}
-::view-transition-new(root) {
-  animation: theme-reveal 0.5s cubic-bezier(0.4, 0, 0.2, 1);
-  z-index: 1;
-}
-
-/* 退出暗色(dark→light):旧视图(暗色)收缩,露出新视图(亮色)。
-   注意:属性必须与 ::view-transition-old 同属一个元素(:root)——
-   带空格的后代选择器匹配不到伪元素,会落回默认扩散。 */
-:root[data-theme-dir="leave-dark"]::view-transition-old(root) {
-  animation: theme-contract 0.5s cubic-bezier(0.4, 0, 0.2, 1) forwards;
-  z-index: 1;
-}
-:root[data-theme-dir="leave-dark"]::view-transition-new(root) {
-  animation: none;
-  z-index: 0;
-}
-
-@keyframes theme-reveal {
-  from {
-    clip-path: circle(0% at var(--theme-tx, 50%) var(--theme-ty, 50%));
-  }
-  to {
-    clip-path: circle(150% at var(--theme-tx, 50%) var(--theme-ty, 50%));
-  }
-}
-@keyframes theme-contract {
-  from {
-    clip-path: circle(150% at var(--theme-tx, 50%) var(--theme-ty, 50%));
-  }
-  to {
-    clip-path: circle(0% at var(--theme-tx, 50%) var(--theme-ty, 50%));
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  ::view-transition-old(root),
-  ::view-transition-new(root) {
-    animation: none;
   }
 }
 
@@ -2010,13 +2023,14 @@ body.sidebar-resizing .main-content {
     background var(--t-fast) var(--ease),
     box-shadow var(--t-fast) var(--ease);
 }
-/* 宽度按层级:深层刻度更短,右缘对齐形成"刻度尺" */
+/* 宽度按层级:深层刻度更短,右缘对齐形成"刻度尺"。
+   每级递减 6px(L1-L4),扩大层级区分;L4-L6 继续递减形成完整层次。 */
 .outline-tick-row[data-level="1"] .outline-tick { width: 22px; }
 .outline-tick-row[data-level="2"] .outline-tick { width: 18px; }
-.outline-tick-row[data-level="3"] .outline-tick { width: 14px; }
-.outline-tick-row[data-level="4"] .outline-tick { width: 10px; }
-.outline-tick-row[data-level="5"] .outline-tick { width: 10px; }
-.outline-tick-row[data-level="6"] .outline-tick { width: 10px; }
+.outline-tick-row[data-level="3"] .outline-tick { width: 12px; }
+.outline-tick-row[data-level="4"] .outline-tick { width: 8px; }
+.outline-tick-row[data-level="5"] .outline-tick { width: 6px; }
+.outline-tick-row[data-level="6"] .outline-tick { width: 4px; }
 .outline-tick-row[data-active="true"] .outline-tick {
   background: var(--accent);
   opacity: 1;
