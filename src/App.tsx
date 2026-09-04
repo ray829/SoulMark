@@ -606,7 +606,7 @@ function App() {
             onClick={onEditorClick}
           >
             <ErrorBoundary>
-              <MarkdownEditor ref={editorRef} onChange={onMdChange} onReady={onEditorReady} />
+              <MarkdownEditor ref={editorRef} onChange={onMdChange} onReady={onEditorReady} filePath={currentPath} />
             </ErrorBoundary>
             {/* 源码模式:等宽字体 textarea 承载 md 原文,绝对定位覆盖 Milkdown。
                 渲染条件含 editorReady:冷启动持久化源码模式时等 Milkdown 就绪再挂载,

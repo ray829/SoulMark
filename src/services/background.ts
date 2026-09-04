@@ -2,7 +2,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { copyFile } from "@tauri-apps/plugin-fs";
 import { appDataDir, join } from "@tauri-apps/api/path";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { ensureDir, pathExists } from "./fs";
+import { ensureDir } from "./fs";
 
 /** 自定义背景图收口层。
  *  选图 → 拷贝到 appDataDir/backgrounds/bg.<ext> → convertFileSrc 转 webview URL。
@@ -16,7 +16,7 @@ const SUPPORTED_EXT = ["jpg", "jpeg", "png", "webp", "gif"];
 async function ensureBgDir(): Promise<string> {
   const base = await appDataDir();
   const dir = await join(base, BG_DIR_NAME);
-  if (!(await pathExists(dir))) await ensureDir(dir, { recursive: true });
+  await ensureDir(dir);
   return dir;
 }
 

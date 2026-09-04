@@ -1,4 +1,4 @@
-import { forwardRef, useImperativeHandle, useRef, useEffect } from "react";
+import { forwardRef, useImperativeHandle, useRef, useEffect, useCallback } from "react";
 import {
   Editor,
   rootCtx,
@@ -10,7 +10,7 @@ import {
   editorStateOptionsCtx,
   prosePluginsCtx,
 } from "@milkdown/kit/core";
-import { commonmark } from "@milkdown/kit/preset/commonmark";
+import { commonmark, insertImageCommand } from "@milkdown/kit/preset/commonmark";
 import { gfm } from "@milkdown/kit/preset/gfm";
 import { listener, listenerCtx } from "@milkdown/kit/plugin/listener";
 import { history, undoCommand, redoCommand } from "@milkdown/kit/plugin/history";
@@ -23,8 +23,11 @@ import { mathPlugins } from "./editor-views/MathView";
 import { mermaidPlugins } from "./editor-views/MermaidView";
 import { markPlugins } from "./editor-views/MarkView";
 import { selectionTrackerPlugin } from "./editor-views/SelectionTrackerPlugin";
+import { imageDropPlugin, type ImageInsertPayload } from "./editor-views/ImageDropPlugin";
 import { SelectionToolbar } from "./SelectionToolbar";
 import { sanitizeHtml, sanitizeUrl } from "../utils/sanitize";
+import { resolveImageSrc, saveImageAsset } from "../utils/image";
+import { message } from "@tauri-apps/plugin-dialog";
 import "katex/dist/katex.min.css";
 import "../styles/editor.css";
 
@@ -106,14 +109,43 @@ interface EditorProps {
   onChange?: () => void;
   /** Milkdown 编辑器创建完成后回调一次(供"双击打开文件"等待 editor 就绪)。 */
   onReady?: () => void;
+  /** 当前打开的 md 文件绝对路径,供渲染层把本地图片相对路径解析为 webview 可访问 URL。
+   *  null/undefined = 未保存新文件(无基准目录,相对路径图片无法解析,裂图合理)。 */
+  filePath?: string | null;
 }
 
 const InnerEditor = forwardRef<EditorHandle, EditorProps>(function InnerEditor(
-  { initialMarkdown = "", onChange, onReady },
+  { initialMarkdown = "", onChange, onReady, filePath },
   ref,
 ) {
   const editorRef = useRef<Editor | null>(null);
   const rootRef = useRef<HTMLElement | null>(null);
+  // filePath ref 镜像:useEditor 的 get 回调只跑一次(Milkdown 创建),
+  // MutationObserver 闭包需读 ref 拿最新路径,避免 stale closure。
+  // setMarkdown 重建 DOM 时 filePath state 可能尚未更新 → 转换需读 ref 兜底。
+  const filePathRef = useRef<string | null | undefined>(filePath);
+  useEffect(() => {
+    filePathRef.current = filePath;
+  }, [filePath]);
+
+  // 本地图片路径 → webview 可访问 URL:把相对/绝对/file:// 路径转为 convertFileSrc 输出。
+  // 仅改 DOM 不改 doc:md 保留原始路径,保存后仍是原始路径(Typora/Obsidian 习惯)。
+  // 幂等:resolveImageSrc 对已是 asset URL 的 src 原样返回,不会重复 setAttribute → 无死循环。
+  // 提到组件层(useCallback)供 MutationObserver 与 filePath 变化全量重扫共用。
+  const resolveImgEl = useCallback((el: HTMLImageElement) => {
+    const raw = el.getAttribute("src");
+    if (!raw) return;
+    // 危险协议先由 sanitizeUrl 清空(javascript: 等),清空后不再处理
+    if (sanitizeUrl(raw) !== raw) {
+      el.setAttribute("src", "");
+      return;
+    }
+    void resolveImageSrc(raw, filePathRef.current).then((resolved) => {
+      if (resolved && resolved !== el.getAttribute("src")) {
+        el.setAttribute("src", resolved);
+      }
+    });
+  }, []);
 
   const { get } = useEditor((root) => {
     rootRef.current = root;
@@ -135,7 +167,8 @@ const InnerEditor = forwardRef<EditorHandle, EditorProps>(function InnerEditor(
       .use(mermaidPlugins as never)
       .use(markPlugins as never)
       .use(taskCheckboxPlugin)
-      .use(selectionTrackerPlugin);
+      .use(selectionTrackerPlugin)
+      .use(imageDropPlugin);
     editorRef.current = editor;
     return editor;
   });
@@ -178,8 +211,14 @@ const InnerEditor = forwardRef<EditorHandle, EditorProps>(function InnerEditor(
       scope.querySelectorAll<HTMLElement>("a[href], img[src]").forEach(fixUrlAttr);
     };
 
+    // 图片转换用组件层 resolveImgEl(useCallback),此处仅提供批量助手
+    const resolveImgs = (scope: HTMLElement) => {
+      scope.querySelectorAll<HTMLImageElement>("img[src]").forEach(resolveImgEl);
+    };
+
     root.querySelectorAll<HTMLElement>("span[data-type='html']").forEach(fixHtmlNode);
     sanitizeUrlEls(root);
+    resolveImgs(root);
 
     const obs = new MutationObserver((mutations) => {
       for (const m of mutations) {
@@ -190,12 +229,24 @@ const InnerEditor = forwardRef<EditorHandle, EditorProps>(function InnerEditor(
           // 新增/重渲染的 a/img 同步清理危险协议
           if (node.matches?.("a[href], img[src]")) fixUrlAttr(node);
           sanitizeUrlEls(node);
+          // 新增/重渲染的 img 转换本地路径
+          if (node.matches?.("img[src]")) resolveImgEl(node as HTMLImageElement);
+          resolveImgs(node);
         }
       }
     });
     obs.observe(root, { childList: true, subtree: true });
     return () => obs.disconnect();
-  }, []);
+  }, [resolveImgEl]);
+
+  // filePath 变化(切 tab / 打开文件 / 另存为):全量重扫已渲染 img,
+  // 按新基准路径重新转换相对路径图片。setMarkdown 同步重建 DOM 时 MutationObserver
+  // 会捕获新增 img,此 effect 兜底"DOM 复用未触发 addedNodes"的场景(如切回已渲染过的 tab)。
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    root.querySelectorAll<HTMLImageElement>("img[src]").forEach(resolveImgEl);
+  }, [filePath, resolveImgEl]);
 
   // Milkdown editor.create() 异步完成:get() 首次非 null 即视为就绪,触发 onReady。
   // 用 ref 去重保证只触发一次(onReady 引用变化 / strict mode 双调用均安全)。
@@ -355,6 +406,49 @@ const InnerEditor = forwardRef<EditorHandle, EditorProps>(function InnerEditor(
     window.addEventListener("soulmark:shiki-theme", onShikiTheme);
     return () => window.removeEventListener("soulmark:shiki-theme", onShikiTheme);
   }, [get]);
+
+  // 粘贴/拖拽图片:imageDropPlugin 拦截后派发 soulmark:image-insert,
+  // 这里落盘到 .assets/ 并用 insertImageCommand 插入相对路径引用。
+  // - 落盘失败(未保存文件/IO 错)用 message 弹窗提示,不插入节点。
+  // - 插入后 dispatch transaction 触发 listener → onMdChange 置 dirty。
+  // - 渲染层 resolveImgEl 自动把 .assets/xxx 转为 asset URL 显示(已有逻辑)。
+  useEffect(() => {
+    const onInsert = async (e: Event) => {
+      const { blob, pos } = (e as CustomEvent<ImageInsertPayload>).detail;
+      const editor = get() ?? editorRef.current;
+      if (!editor) return;
+      let relPath: string;
+      try {
+        relPath = await saveImageAsset(blob, filePathRef.current);
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : String(err);
+        await message(`插入图片失败：${detail}`, { title: "插入图片", kind: "error" });
+        return;
+      }
+      editor.action((ctx) => {
+        // 先把光标移到落点(drop)或当前位置(paste),再插入图片节点
+        const view = ctx.get(editorViewCtx);
+        const size = view.state.doc.content.size;
+        const p = Math.max(0, Math.min(pos, size));
+        try {
+          const tr = view.state.tr.setSelection(TextSelection.create(view.state.doc, p));
+          view.dispatch(tr);
+        } catch {
+          /* 落点非法时保持默认选区 */
+        }
+        ctx.get(commandsCtx).call(insertImageCommand.key, { src: relPath });
+        view.focus();
+      });
+      // 兜底:插入后下一帧全量重扫 img,确保 src 被转成 asset URL(MutationObserver 时序兜底)
+      requestAnimationFrame(() => {
+        const root = rootRef.current;
+        if (!root) return;
+        root.querySelectorAll<HTMLImageElement>("img[src]").forEach(resolveImgEl);
+      });
+    };
+    window.addEventListener("soulmark:image-insert", onInsert);
+    return () => window.removeEventListener("soulmark:image-insert", onInsert);
+  }, [get, resolveImgEl]);
 
   return (
     <>
