@@ -86,7 +86,7 @@ export function Sidebar({
     }
     let cancelled = false;
     const t = setTimeout(() => {
-      searchMarkdown(rootDir, q).then((r) => {
+      searchMarkdown(rootDir, q, fsVersion).then((r) => {
         if (!cancelled) setResults(r);
       });
     }, 200);

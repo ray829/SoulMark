@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { RangeSlider } from "./RangeSlider";
 import { pickBackgroundImage } from "../services/background";
 import { CloseIcon, ImageIcon } from "./icons";
@@ -40,6 +40,15 @@ export function SettingsModal(props: SettingsModalProps) {
   const [picking, setPicking] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Esc 关闭:与 ContextMenu / PromptDialog 同构(浮层 Esc 语义统一)。
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
   const hasBg = !!bgImage;
 
   // 选图:调系统对话框 → 拷贝到 appData → 转 asset URL → 写 CSS 变量
@@ -56,9 +65,6 @@ export function SettingsModal(props: SettingsModalProps) {
       setPicking(false);
     }
   };
-
-  // Esc 关闭
-  // (modal-overlay 点击外部已关闭;Esc 由 overlay 焦点或全局监听处理,此处简化)
 
   return (
     <div className="modal-overlay" onClick={onClose}>

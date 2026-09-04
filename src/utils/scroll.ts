@@ -28,6 +28,13 @@ const MS_PER_PX = 0.6;
 /** 进行中的滚动控制器 key,挂在元素上。同一元素新动画启动时取消旧动画。 */
 const CTRL_KEY = "__smoothScrollCtrl";
 
+/** 用户是否设置了"减少动画"系统偏好。
+ *  命中时所有平滑滚动直接瞬移到目标(尊重无障碍偏好,JS 动画不受 CSS
+ *  @media prefers-reduced-motion 控制,需在此显式短路)。 */
+const prefersReducedMotion =
+  typeof window !== "undefined" &&
+  window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+
 interface Controller {
   raf: number | null;
   cleanup: () => void;
@@ -72,6 +79,12 @@ export function smoothScrollTo(
   const start = el.scrollTop;
   const distance = Math.abs(target - start);
   if (distance < 1) {
+    opts.onDone?.();
+    return;
+  }
+  // 减少动画偏好:直接瞬移到目标,不走 rAF 动画
+  if (prefersReducedMotion) {
+    el.scrollTop = target;
     opts.onDone?.();
     return;
   }

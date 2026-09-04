@@ -511,34 +511,40 @@ export function useFile(
     const dirtyTabs = tabs.filter((t) => t.dirty && t.path != null);
     if (dirtyTabs.length === 0) return;
     const timers = dirtyTabs.map((t) =>
-      window.setTimeout(async () => {
+    window.setTimeout(async () => {
         const cur = tabsRef.current.find((x) => x.id === t.id);
         if (!cur || !cur.dirty || cur.path == null) return;
         // active tab 用 editor 最新内容;非 active 用 tab.markdown(切换时 flush 的)
         let md = cur.markdown;
+        // 保存前记录 doc 版本(引用):await 后比较引用即可判断写盘期间是否有新输入,
+        // 无需第二次 getMarkdown() 序列化大文档(原方案的性能瓶颈)。
+        let docVer: unknown = null;
         if (activeTabIdRef.current === cur.id) {
           const editor = editorRef.current;
-          if (editor) md = editor.getMarkdown();
+          if (editor) {
+            md = editor.getMarkdown();
+            docVer = editor.getDocVersion();
+          }
         }
         try {
           await writeFile(cur.path, md);
           // 保存成功后清 dirty。active tab 以 editor 当前内容为准:
-          // 若 writeFile 期间用户又输入了(latest !== md),保留 dirty 让下次 timer 重存新内容;
+          // 若 writeFile 期间用户又输入了(doc 引用已变),保留 dirty 让下次 timer 重存新内容;
           // 否则同步 markdown 为 md 并清 dirty —— 否则 active tab 的 markdown 是 stale 旧值,
           // 恒不等于 md → dirty 清不掉 → setTabsBoth 产生新数组 → effect 重跑 → 死循环每 1.5s 重写盘。
           // 非 active tab 的 markdown 在切走时已 flush,等于 md 即无新编辑,直接清 dirty。
-          const latest = activeTabIdRef.current === cur.id
-            ? editorRef.current?.getMarkdown()
-            : undefined;
+          // doc 引用比较 O(1),替代原方案第二次 getMarkdown()(大文档序列化耗时,主线程卡顿根因)。
+          const changedDuringSave =
+            activeTabIdRef.current === cur.id &&
+            docVer != null &&
+            editorRef.current?.getDocVersion() !== docVer;
           setTabsBoth((prev) =>
             prev.map((x) => {
               if (x.id !== cur.id) return x;
-              if (latest !== undefined) {
-                return latest !== md
-                  ? { ...x, dirty: true, markdown: latest }
-                  : { ...x, dirty: false, markdown: md };
+              if (changedDuringSave) {
+                return { ...x, dirty: true, markdown: md };
               }
-              return x.markdown === md ? { ...x, dirty: false } : x;
+              return x.markdown === md ? { ...x, dirty: false } : { ...x, dirty: false, markdown: md };
             }),
           );
         } catch (err) {

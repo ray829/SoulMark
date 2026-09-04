@@ -94,6 +94,11 @@ export interface EditorHandle {
   getSelection: () => { anchor: number; head: number } | null;
   /** 恢复选区到指定位置(clamp 到 doc.size,失败忽略)。 */
   setSelection: (anchor: number, head: number) => void;
+  /** 获取当前 ProseMirror doc 的轻量版本标记(对象引用)。
+   *  doc 不可变,任何 transaction 改变内容都会产生新引用,故 await 前后比较引用
+   *  即可判断内容是否变化——比 getMarkdown() 序列化快得多(O(1) vs O(n))。
+   *  供自动保存检测"写盘期间是否有新输入",避免第二次全量序列化大文档。 */
+  getDocVersion: () => unknown;
 }
 
 interface EditorProps {
@@ -320,6 +325,16 @@ const InnerEditor = forwardRef<EditorHandle, EditorProps>(function InnerEditor(
             /* 位置非法(如落在不可选节点上)时忽略,保持默认选区 */
           }
         });
+      },
+      getDocVersion: () => {
+        const editor = get() ?? editorRef.current;
+        if (!editor) return null;
+        // 返回 doc 引用:不可变,内容变化即产生新引用,O(1) 比较判内容是否变化
+        let version: unknown = null;
+        editor.action((ctx) => {
+          version = ctx.get(editorViewCtx).state.doc;
+        });
+        return version;
       },
     }),
     [get],

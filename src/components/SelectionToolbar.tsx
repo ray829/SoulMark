@@ -46,6 +46,8 @@ interface SelectionToolbarProps {
 type ActiveMap = Record<string, boolean>;
 
 const BAR_HEIGHT = 36;
+/** 首次显示延迟(ms):选中后 debounce 再弹出,拖选过程不断重置、不闪烁。 */
+const SHOW_DELAY = 500;
 
 export function SelectionToolbar({ getEditor }: SelectionToolbarProps) {
   const [pos, setPos] = useState<Rect | null>(null);
@@ -63,7 +65,7 @@ export function SelectionToolbar({ getEditor }: SelectionToolbarProps) {
    *  不能用 useEffect 同步 pos→ref:effect 在 commit 后才跑,滞后一拍会导致
    *  首次选区变化误判为「已可见」走立即分支,工具栏闪现在拖选中途的瞬时坐标。 */
   const posRef = useRef<Rect | null>(null);
-  /** 首次显示的延迟 timer:选中后 debounce 0.5s 再弹出,拖选过程不闪烁。 */
+  /** 首次显示的延迟 timer:选中后 debounce 再弹出,拖选过程不闪烁。 */
   const showTimerRef = useRef<number | null>(null);
   /** 鼠标是否在编辑器内按住(拖选中)。拖选期间不显示/不计时,松手后才开始 0.5s 计时。
    *  这避免「拖选超过 0.5s / 中途停顿 0.5s」时 timer 在中途触发,工具栏先显示在中间位置、
@@ -94,6 +96,14 @@ export function SelectionToolbar({ getEditor }: SelectionToolbarProps) {
   const showNow = useCallback(() => {
     const editor = getEditor();
     if (!editor) return;
+    // 主内容区正文顶部 = 顶栏(--topbar-h)+ 编辑器标题栏(--editor-header-h)。
+    // 工具栏定位在选区上方时,其顶部不得低于此线,否则被顶栏/标题栏遮挡。
+    // 读 CSS 变量与布局同步;+4 安全余量避开标题栏底发丝线与 main-content 圆角缺口。
+    const cs = getComputedStyle(document.documentElement);
+    const minTop =
+      (parseFloat(cs.getPropertyValue("--topbar-h")) || 52) +
+      (parseFloat(cs.getPropertyValue("--editor-header-h")) || 48) +
+      4;
     editor.action((ctx) => {
       const view = ctx.get(editorViewCtx);
       const cur = view.state.selection;
@@ -108,9 +118,13 @@ export function SelectionToolbar({ getEditor }: SelectionToolbarProps) {
       const topMin = Math.min(a.top, b.top);
       const bottomMax = Math.max(a.bottom, b.bottom);
       const leftMid = (Math.min(a.left, b.left) + Math.max(a.right, b.right)) / 2;
-      let top = topMin - 6 - BAR_HEIGHT;
+      // 工具栏与选区的间距:上方 topMin - GAP - BAR_HEIGHT,翻转时 bottomMax + GAP。
+      // GAP=10 比贴边 6 更舒展,避免遮挡选区高亮且留出呼吸感。
+      const GAP = 10;
+      let top = topMin - GAP - BAR_HEIGHT;
       let flip = false;
-      if (top < 8) top = bottomMax + 6; // 上方空间不足:翻转到选区下方
+      // 上方空间不足:工具栏顶部低于正文区顶部(minTop),会被顶栏/标题栏遮挡 → 翻转到选区下方
+      if (top < minTop) top = bottomMax + GAP;
       const left = Math.max(8, Math.min(leftMid, window.innerWidth - 8));
       setPosSafe({ left, top, flip });
     });
@@ -126,8 +140,8 @@ export function SelectionToolbar({ getEditor }: SelectionToolbarProps) {
 
   /** 读取当前 selection,刷新浮层位置与 active 态。
    *  从事件(scroll/selection-change)与命令执行后两条路径调用,均直接读 view 最新状态。
-   *  显示时机:首次从隐藏→显示 debounce 0.5s(拖选过程不断重置,松手 0.5s 后弹出);
-   *  已显示后的状态刷新立即(点按钮 / 滚动 / 微调选区不延迟)。 */
+   *  显示时机:首次从隐藏→显示 debounce(SHOW_DELAY)后再弹出(拖选过程不断重置,
+   *  松手后才开始计时);已显示后的状态刷新立即(点按钮 / 滚动 / 微调选区不延迟)。 */
   const refresh = useCallback(() => {
     // 链接输入 / 标题下拉打开期间锁定:不因 blur / 选区变化 / 滚动而隐藏或移位,
     // 保留浮层稳定(否则点开下拉后工具栏整体重定位,下拉面板跟着左右跳)。
@@ -186,7 +200,7 @@ export function SelectionToolbar({ getEditor }: SelectionToolbarProps) {
         ol: inOl,
       });
       setHeadingDisabled(headingDisabledNow);
-      // 显示策略(posRef 同步准确):已可见 → 立即更新坐标;隐藏中 → debounce 1s 后显示。
+      // 显示策略(posRef 同步准确):已可见 → 立即更新坐标;隐藏中 → debounce SHOW_DELAY 后显示。
       if (posRef.current !== null) {
         requestAnimationFrame(() => showNow());
       } else {
@@ -194,7 +208,7 @@ export function SelectionToolbar({ getEditor }: SelectionToolbarProps) {
         showTimerRef.current = window.setTimeout(() => {
           showTimerRef.current = null;
           showNow();
-        }, 500);
+        }, SHOW_DELAY);
       }
     });
   }, [getEditor, linkOpen, headingOpen, clearShowTimer, showNow, setPosSafe]);

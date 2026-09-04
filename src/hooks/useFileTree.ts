@@ -109,13 +109,21 @@ export async function readChildren(parentPath: string): Promise<FileNode[]> {
   return filtered;
 }
 
-/** 搜索:BFS 递归扫描 rootDir,收集文件名包含 query 的 md 文件(上限 50)。
- *  跳过黑名单大目录,避免搜 node_modules 等。 */
-export async function searchMarkdown(root: string, query: string, limit = 50): Promise<FileNode[]> {
-  const q = query.toLowerCase();
-  const results: FileNode[] = [];
+/** 搜索缓存:按 (root, fsVersion) 失效的全量 md 文件列表。
+ *  首次搜索时递归遍历文件树构建(与原 BFS 同成本),之后同一 fsVersion 内的
+ *  每次输入只在内存列表上做字符串过滤(O(n),无 IO),不再重复 readDir 整棵树。
+ *  fsVersion 在文件增删/重命名时递增 → 缓存自动失效重建。 */
+interface MdListCache {
+  root: string;
+  version: number;
+  files: FileNode[];
+}
+let mdListCache: MdListCache | null = null;
+
+/** 递归收集目录树下所有 md 文件(跳过黑名单大目录与隐藏项)。 */
+async function collectMdFiles(root: string, files: FileNode[]): Promise<void> {
   const queue: string[] = [root];
-  while (queue.length > 0 && results.length < limit) {
+  while (queue.length > 0) {
     const dir = queue.shift()!;
     let entries;
     try {
@@ -124,16 +132,40 @@ export async function searchMarkdown(root: string, query: string, limit = 50): P
       continue;
     }
     for (const e of entries) {
-      if (results.length >= limit) break;
       if (!e.name || e.name.startsWith(".")) continue;
-      if (e.isDirectory && IGNORED_DIRS.has(e.name)) continue; // 跳过大目录
+      if (e.isDirectory && IGNORED_DIRS.has(e.name)) continue;
       const full = joinPath(dir, e.name);
       if (e.isDirectory) {
         queue.push(full);
-      } else if (isMarkdown(e.name) && e.name.toLowerCase().includes(q)) {
-        results.push({ name: e.name, fullPath: full, isDirectory: false });
+      } else if (isMarkdown(e.name)) {
+        files.push({ name: e.name, fullPath: full, isDirectory: false });
       }
     }
+  }
+}
+
+/** 获取全量 md 文件列表(带缓存,按 fsVersion 失效)。 */
+async function getMdList(root: string, version: number): Promise<FileNode[]> {
+  if (mdListCache && mdListCache.root === root && mdListCache.version === version) {
+    return mdListCache.files;
+  }
+  const files: FileNode[] = [];
+  await collectMdFiles(root, files);
+  mdListCache = { root, version, files };
+  return files;
+}
+
+/** 搜索:在缓存的 md 文件列表上过滤文件名包含 query 的项(上限 50)。
+ *  首次搜索构建全量列表(递归遍历,与原方案同成本),之后同一 fsVersion 内的
+ *  每次输入只做内存字符串过滤,无 IO,大幅加快连续输入的响应。
+ *  fsVersion 由调用方传入:文件增删/重命名时递增 → 缓存自动失效重建。 */
+export async function searchMarkdown(root: string, query: string, fsVersion: number, limit = 50): Promise<FileNode[]> {
+  const q = query.toLowerCase();
+  const all = await getMdList(root, fsVersion);
+  const results: FileNode[] = [];
+  for (const f of all) {
+    if (results.length >= limit) break;
+    if (f.name.toLowerCase().includes(q)) results.push(f);
   }
   return results;
 }

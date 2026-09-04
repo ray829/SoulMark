@@ -215,7 +215,7 @@
 
 /* 编辑区选中文本高亮 */
 .milkdown .ProseMirror ::selection {
-  background: rgba(37, 99, 235, 0.16);
+  background: var(--accent-bg);
 }
 /* 空段落(ProseMirror 渲染为 <p><br></p>)在选区内不高亮:
    跨段选区时,空行整行被 ::selection 涂蓝,与上下文字高亮割裂,视觉上像
@@ -231,7 +231,7 @@
 .img-lightbox {
   position: fixed;
   inset: 0;
-  z-index: 2000;
+  z-index: var(--z-lightbox);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -370,13 +370,16 @@
    半透明毛玻璃 + 阴影,与代码块工具栏同系叠层风格。 */
 .md-selection-toolbar {
   position: fixed;
-  z-index: 1500;
+  z-index: var(--z-toolbar);
   transform: translateX(-50%);
   display: flex;
   align-items: center;
   gap: 1px;
   padding: 4px 6px;
-  background: var(--surface);
+  /* 半透明背景 + backdrop blur:透出底层内容形成毛玻璃质感(与 ctx-menu 等浮层同构)。
+     浅色对应 --surface(#fdfcf7),暗色对应 rgba(40,40,42)。沿用项目 rgba 硬编码惯例
+     (注释:用 rgba 而非 color-mix 以兼容旧 webview)。 */
+  background: rgba(253, 252, 247, 0.9);
   border: 1px solid var(--border);
   border-radius: 8px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.06);
@@ -398,7 +401,7 @@
   }
 }
 [data-theme="dark"] .md-selection-toolbar {
-  background: rgba(40, 40, 42, 0.92);
+  background: rgba(40, 40, 42, 0.9);
   border-color: rgba(255, 255, 255, 0.12);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.3);
 }
@@ -439,12 +442,8 @@
 }
 /* active 态:按钮内文字变蓝 + 淡蓝底,与 ::selection 高亮同系 */
 .md-toolbar-btn[data-active] {
-  color: #2563eb;
-  background: rgba(37, 99, 235, 0.12);
-}
-[data-theme="dark"] .md-toolbar-btn[data-active] {
-  color: #93b4fd;
-  background: rgba(110, 142, 241, 0.18);
+  color: var(--accent);
+  background: var(--accent-bg);
 }
 /* 禁用态(标题下拉在跨块/表格/列表内):置灰 + 不响应 hover */
 .md-toolbar-btn[data-disabled],
@@ -458,7 +457,7 @@
 }
 .md-toolbar-btn.primary {
   color: #fff;
-  background: #2563eb;
+  background: var(--accent);
 }
 .md-toolbar-btn.primary:hover {
   background: #1d4ed8;
@@ -491,7 +490,7 @@
   outline: none;
 }
 .md-toolbar-link-input:focus {
-  border-color: #2563eb;
+  border-color: var(--accent);
 }
 [data-theme="dark"] .md-toolbar-link-input {
   background: rgba(0, 0, 0, 0.25);
@@ -512,7 +511,7 @@
   position: absolute;
   top: calc(100% + 6px);
   left: 0;
-  z-index: 1600;
+  z-index: var(--z-toolbar-menu);
   min-width: 132px;
   padding: 4px;
   background: var(--surface);

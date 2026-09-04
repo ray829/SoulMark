@@ -101,6 +101,14 @@
   /* 主题切换颜色过渡时长(@property 注册的主题色 var() 用) */
   --t-theme: 400ms;
 
+  /* 内容区宽度与左右 padding:正文(.milkdown)与源码(.source-view)共享,
+     保证两模式视觉宽度一致、同步居中。分档随 CSS 视口加宽,封顶 1600
+     (中文单行约 92 字,可读上限)。各档 min(百分比, 上限):百分比兜底防窗口
+     非全屏时撑出横向滚动。常规屏 1280 · 中屏 1440 · 超大屏 1600。
+     详见 .editor-wrap .milkdown 处的断点覆盖。 */
+  --content-w: min(95%, 1280px);
+  --content-px: 48px;
+
   /* ===== 高级感:自定义背景图 + 毛玻璃 =====
      --bg-image/--bg-blur/--bg-dim/--glass-blur/--glass-opacity 由 useSettings
      动态写入 :root inline style,localStorage 持久化。无背景图时回退纯色兜底。 */
@@ -155,6 +163,35 @@
     --surface-glass var(--t-theme) var(--ease),
     --surface-glass-reader var(--t-theme) var(--ease),
     --surface-glass-float var(--t-theme) var(--ease);
+}
+
+/* ===== z-index 层级体系(集中管理,避免散落魔法数与层级冲突) =====
+   从底到顶:背景 < 应用 < 侧栏/分隔条 < 顶栏/主区 < 大纲 < 悬浮球 <
+   选区工具栏 < 选区工具栏下拉 < 右键菜单(盖在工具栏之上) < 模态 < 灯箱。 */
+:root {
+  --z-bg: 0;
+  --z-app: 1;
+  --z-sidebar: 2;
+  --z-resizer: 3;
+  --z-topbar: 5;
+  --z-main: 5;
+  --z-outline: 10;
+  --z-fab: 50;
+  --z-toolbar: 1000;      /* 选区浮动工具栏 */
+  --z-toolbar-menu: 1100; /* 选区工具栏内的标题下拉 */
+  --z-menu: 1200;         /* 右键菜单(高于选区工具栏:右键时菜单盖在工具栏之上) */
+  --z-modal: 1300;        /* 模态遮罩 + 弹窗 */
+  --z-lightbox: 2000;     /* 图片放大预览(最高) */
+}
+
+/* ===== 全局键盘焦点轮廓:可访问性兜底 =====
+   所有可交互元素(button/a/[tabindex])在键盘聚焦时显示 accent 轮廓,
+   鼠标点击聚焦不显示(配合 :focus-visible 语义)。原项目仅靠 :hover 反馈,
+   键盘用户无法感知焦点位置。outline-offset 避免轮廓紧贴元素边缘。 */
+:where(button, a, [role="button"], [role="menuitem"], [tabindex]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-radius: var(--radius-sm);
 }
 
 /* ===== 暗色主题:覆盖 token =====
@@ -241,7 +278,7 @@ body,
 .bg-layer {
   position: fixed;
   inset: 0;
-  z-index: 0;
+  z-index: var(--z-bg);
   background-image: var(--bg-image, none);
   background-size: cover;
   background-position: center;
@@ -273,7 +310,7 @@ body,
 /* ===== 整体布局 ===== */
 .app {
   position: relative;
-  z-index: 1; /* 提到 .bg-layer 之上,容器半透明方可透出背景 */
+  z-index: var(--z-app); /* 提到 .bg-layer 之上,容器半透明方可透出背景 */
   display: flex;
   flex-direction: column;
   height: 100dvh;
@@ -328,7 +365,7 @@ body,
 /* ===== 顶部栏 ===== */
 .topbar {
   position: relative;
-  z-index: 5;
+  z-index: var(--z-topbar);
   display: flex;
   align-items: center;
   height: var(--topbar-h);
@@ -436,7 +473,9 @@ body,
 
 /* 图标切换过渡:太阳/月亮 SVG 叠放,点击切换主题时交叉淡入+旋转。
    当前主题图标带 [data-active] 可见,另一图标淡出旋转。
-   图标样式与颜色不变(stroke=currentColor 跟随按钮)。 */
+   时长统一用 --t-theme,与全局主题色过渡(@property 变量 400ms)同步起止,
+   避免图标先于主题色变完造成的视觉不同步。
+   图标颜色 stroke=currentColor 跟随按钮 color(随主题色同步插值)。 */
 .theme-toggle-icon-stack {
   position: relative;
   width: 16px;
@@ -451,7 +490,7 @@ body,
   height: 16px;
   opacity: 0;
   transform: rotate(-90deg) scale(0.6);
-  transition: opacity 0.28s var(--ease), transform 0.4s var(--ease);
+  transition: opacity var(--t-theme) var(--ease), transform var(--t-theme) var(--ease);
 }
 .theme-toggle-icon-stack svg[data-active] {
   opacity: 1;
@@ -617,7 +656,7 @@ body,
   background: transparent;
   color: var(--text-tertiary);
   cursor: pointer;
-  transition: all var(--t-fast) var(--ease);
+  transition: color, background-color var(--t-fast) var(--ease);
 }
 
 .topbar-tab-add:hover {
@@ -676,7 +715,7 @@ body,
 /* ===== 侧栏 ===== */
 .sidebar {
   position: relative;
-  z-index: 2; /* 高于主区:侧栏向右投影需落在主区之上才可见 */
+  z-index: var(--z-sidebar); /* 高于主区:侧栏向右投影需落在主区之上才可见 */
   width: var(--sidebar-w);
   /* 收起/展开时宽度平滑过渡;拖拽调整时由 body.sidebar-resizing 禁用,避免粘滞滞后 */
   transition: width var(--t-side) var(--ease);
@@ -716,7 +755,7 @@ body.sidebar-resizing .main-content {
   top: 0;
   bottom: 0;
   width: 8px;
-  z-index: 3;
+  z-index: var(--z-resizer);
   cursor: col-resize;
   touch-action: none;
 }
@@ -1065,7 +1104,7 @@ body.sidebar-resizing .main-content {
 /* ===== 主内容区 — 白色圆角卡片 ===== */
 .main-content {
   position: relative;
-  z-index: 5; /* 盖住顶栏底边与侧栏右边:左上圆角缺口落在它们的玻璃面上而非裸露背景图 */
+  z-index: var(--z-main); /* 盖住顶栏底边与侧栏右边:左上圆角缺口落在它们的玻璃面上而非裸露背景图 */
   flex: 1;
   /* 最小宽度:保证正文区可读(360px 减去 .milkdown 左右 padding 96px,正文区约 264px)。
      配合 .sidebar flex-shrink:1,窗口窄时侧栏先收缩让位,主区保住 360px。 */
@@ -1153,7 +1192,7 @@ body.sidebar-resizing .main-content {
   border-radius: var(--radius-sm);
   color: var(--text-tertiary);
   cursor: pointer;
-  transition: all var(--t-fast) var(--ease);
+  transition: color, background-color var(--t-fast) var(--ease);
   flex-shrink: 0;
 }
 
@@ -1183,20 +1222,40 @@ body.sidebar-resizing .main-content {
 }
 
 .editor-wrap .milkdown {
-  /* 内容区主体:居中阅读。
-     max-width 提至 1080px(原 960),整体内容区扩大。
-     min(95%, 1080px):窄窗口随容器收缩不撑出横向滚动;宽窗口最宽 1080。 */
-  width: min(95%, 1080px);
+  /* 内容区主体:居中阅读。宽度与左右 padding 由 --content-w / --content-px 驱动,
+     与 .source-view 共享变量,保证正文/源码两模式视觉宽度一致、同步居中。
+     分档随 CSS 视口加宽,封顶 1600(中文单行约 92 字,可读上限——再宽换行追踪困难)。
+     各档 min(百分比, 上限):百分比兜底防窗口非全屏时撑出横向滚动。
+     • 常规屏(≤1919) → 1280 • 中屏(1920-2559) → 1440 • 超大屏(≥2560) → 1600 */
+  width: var(--content-w);
   margin: 0 auto;
   /* 底部基础阅读留白(140px)+ 动态补白(让最末标题能滚到顶部,参考 Notion)。
      动态补白由 useOutline 计算、经 --outline-pad-bottom 变量写入。 */
-  padding: 64px 48px calc(140px + var(--outline-pad-bottom, 0px));
+  padding: 64px var(--content-px) calc(140px + var(--outline-pad-bottom, 0px));
+}
+
+/* 中屏(24寸 FHD / 2K 桌面):加宽到 1440,padding 同步到 56。
+   覆盖 :root 变量,正文 .milkdown 与源码 .source-view 同步生效。 */
+@media (min-width: 1920px) {
+  :root {
+    --content-w: min(90%, 1440px);
+    --content-px: 56px;
+  }
+}
+
+/* 超大屏(27/32寸 2K·4K·5K):放到可读上限 1600,padding 加到 64。
+   大屏留白舒展避免内容贴边;占比受可读上限约束不再追求填充率。 */
+@media (min-width: 2560px) {
+  :root {
+    --content-w: min(86%, 1600px);
+    --content-px: 64px;
+  }
 }
 
 /* ===== 右键菜单 ===== */
 .ctx-menu {
   position: fixed;
-  z-index: 1000;
+  z-index: var(--z-menu);
   min-width: 160px;
   padding: 4px;
   background: var(--surface-glass-float);
@@ -1251,7 +1310,7 @@ body.sidebar-resizing .main-content {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  z-index: 1100;
+  z-index: var(--z-modal);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1315,7 +1374,7 @@ body.sidebar-resizing .main-content {
   font-family: inherit;
   font-weight: 450;
   cursor: pointer;
-  transition: all var(--t-fast) var(--ease);
+  transition: background-color, border-color var(--t-fast) var(--ease);
 }
 
 .modal-btn:hover {
@@ -1598,7 +1657,7 @@ body.sidebar-resizing .main-content {
   font-weight: 450;
   letter-spacing: -0.01em;
   cursor: pointer;
-  transition: all var(--t-fast) var(--ease);
+  transition: background-color, border-color var(--t-fast) var(--ease);
   text-align: center;
 }
 
@@ -1673,11 +1732,17 @@ body.sidebar-resizing .main-content {
    背景图、无背景图态为纯白),与正常模式视觉一致,不挡背景图。 */
 .source-view {
   position: absolute;
-  inset: 0;
-  z-index: 5;
-  width: 100%;
-  height: 100%;
-  padding: 32px 48px 140px;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: var(--z-main);
+  /* 宽度与左右 padding 与正文 .milkdown 共享 --content-w / --content-px,
+     保持源码/正文两模式视觉宽度一致、同步居中、同步响应大屏断点。
+     left/right:0 + margin:auto 居中 absolute 元素;height 由 top/bottom 撑满。 */
+  width: var(--content-w);
+  margin: 0 auto;
+  padding: 32px var(--content-px) 140px;
   border: none;
   outline: none;
   resize: none;
@@ -1712,7 +1777,7 @@ body.sidebar-resizing .main-content {
   position: absolute;
   right: 20px;
   bottom: 20px;
-  z-index: 50;
+  z-index: var(--z-fab);
 }
 
 /* 主球 */
@@ -1970,7 +2035,7 @@ body.sidebar-resizing .main-content {
   flex-direction: row-reverse;
   /* 封顶高度 = 阅读区 60%。高度由内容(浮层)撑起,未封顶时不占满、浮层无滚动。 */
   max-height: calc((100dvh - var(--topbar-h) - var(--editor-header-h)) * 0.6);
-  z-index: 10;
+  z-index: var(--z-outline);
   /* 整体不拦截:隐藏态浮层透明 + 穿透,root 自身也穿透 → 鼠标滚轮直达正文,
      不被 root 盒子(覆盖 256px 宽)吃掉。刻度尺与显示态浮层单独开 auto。 */
   pointer-events: none;
