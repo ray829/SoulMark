@@ -131,7 +131,6 @@ function App() {
     closeRight,
     moveTab,
     currentPath,
-    dirty,
     rootDir,
     fsVersion,
     fsChange,
@@ -463,8 +462,8 @@ function App() {
               <div
                 key={tab.id}
                 data-tab-id={tab.id}
-                className={`topbar-tab${tab.id === activeTabId ? " active" : ""}${isDragging ? " dragging" : ""}${isOver ? ` drag-over-${dragOverPlace}` : ""}`}
-                title={tab.path ?? "未命名"}
+                className={`topbar-tab${tab.id === activeTabId ? " active" : ""}${isDragging ? " dragging" : ""}${isOver ? ` drag-over-${dragOverPlace}` : ""}${tab.deleted ? " deleted" : ""}`}
+                title={tab.deleted ? `${tab.path ?? "未命名"}（文件已被删除，保存将另存为新文件）` : (tab.path ?? "未命名")}
                 draggable
                 onDragStart={(e) => onTabDragStart(e, tab.id)}
                 onDragOver={(e) => onTabDragOver(e, tab.id)}
@@ -576,11 +575,6 @@ function App() {
           <div className="editor-header">
             <div className="editor-title">
               <FileMarkdown className="editor-title-icon" />
-              {dirty && (
-                <span className="dirty-dot" title="未保存的修改">
-                  ●
-                </span>
-              )}
               {fileName && (
                 <span className="file-name" title={currentPath ?? ""}>
                   {fileName}
@@ -598,6 +592,20 @@ function App() {
               </button>
             )}
           </div>
+          {activeTab?.deleted && (
+            <div className="deleted-banner" role="status">
+              <span className="deleted-banner-text">
+                该文件已被删除，内容仍可编辑，保存将另存为新文件
+              </span>
+              <button
+                className="deleted-banner-btn"
+                onClick={() => void saveAsFile()}
+                title="另存为新文件"
+              >
+                另存为
+              </button>
+            </div>
+          )}
           <div
             ref={wrapRef}
             className="editor-wrap"

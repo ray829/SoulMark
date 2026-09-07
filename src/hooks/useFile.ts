@@ -15,10 +15,19 @@ import { baseName, parentDir, joinPath } from "../utils/path";
 /** 统一 Markdown 过滤器:与 Sidebar 的 isMarkdown 保持一致 */
 const MD_FILTER = { name: "Markdown", extensions: ["md", "markdown", "mdown", "mkd", "txt"] };
 
+/** 原生对话框按钮文字:plugin-dialog 默认按钮硬编码为英文 "Ok"/"Cancel",
+ *  显式传中文,让删除确认/重名提示/错误框按钮为中文。 */
+const ZH_OK = "确定";
+const ZH_CANCEL = "取消";
+
 /** 文件读写失败时的统一错误提示 */
 async function showError(operation: string, err: unknown): Promise<void> {
   const detail = err instanceof Error ? err.message : String(err);
-  await message(`${operation}失败：${detail}`, { title: operation, kind: "error" });
+  await message(`${operation}失败：${detail}`, {
+    title: operation,
+    kind: "error",
+    buttons: { ok: ZH_OK },
+  });
 }
 
 /** 单个标签:独立持有路径、内容、脏标记、滚动位置、光标位置 */
@@ -27,6 +36,9 @@ export interface Tab {
   path: string | null; // null = 未命名/未保存
   markdown: string;
   dirty: boolean;
+  /** 文件已被外部删除(Finder 等):保留内容与原名,保存走另存为,不写回原路径。
+   *  由窗口聚焦时的 reconcileDeletedTabs 标记;另存为成功后清除。 */
+  deleted?: boolean;
   scrollTop: number;
   selection: { anchor: number; head: number } | null;
 }
@@ -148,6 +160,25 @@ export function useFile(
     }
   }, [editorRef, setTabsBoth, commitActive, restoreScrollTop]);
 
+  /** 同步已打开 tab 的删除状态:批量检查有 path 且未标 deleted 的 tab 对应文件是否仍存在,
+   *  不存在的标记 deleted(保留内容与原名)。窗口聚焦时触发,捕捉 Finder 等外部删除。
+   *  静默标记(不弹框):由 tab 删除线 + editor-header 提示条告知用户,不打断编辑。 */
+  const reconcileDeletedTabs = useCallback(async () => {
+    const candidates = tabsRef.current.filter((t) => t.path != null && !t.deleted);
+    if (candidates.length === 0) return;
+    const results = await Promise.all(
+      candidates.map(async (t) => {
+        try { return { id: t.id, gone: !(await pathExists(t.path as string)) }; }
+        catch { return { id: t.id, gone: true }; }
+      }),
+    );
+    const goneIds = new Set(results.filter((r) => r.gone).map((r) => r.id));
+    if (goneIds.size === 0) return;
+    setTabsBoth((prev) =>
+      prev.map((t) => (goneIds.has(t.id) ? { ...t, deleted: true } : t)),
+    );
+  }, [setTabsBoth]);
+
   /** 切换到指定 tab:回写当前 → 同步加载目标 → 下一帧恢复光标与滚动。
    *  setMarkdown(parser+updateState)是同步重操作,放当前帧;
    *  setSelection 与 restoreScrollTop 延到下一帧,避免 click handler 长时间阻塞主线程。
@@ -195,6 +226,23 @@ export function useFile(
       switchTab(existing.id);
       return;
     }
+    // 存在性校验:外部(如 Finder)可能已删除文件,避免 readFile 抛技术错误。
+    // 不存在则友好提示并刷新文件树,让已删除节点从树中消失。
+    let exists = true;
+    try {
+      exists = await pathExists(path);
+    } catch {
+      exists = false;
+    }
+    if (!exists) {
+      await message(`文件不存在或已被删除:\n${baseName(path)}`, {
+        title: "打开文件",
+        kind: "warning",
+        buttons: { ok: ZH_OK },
+      });
+      bumpFs([path]);
+      return;
+    }
     let content: string;
     try {
       content = await readFile(path);
@@ -232,7 +280,7 @@ export function useFile(
     if (!rootDirRef.current) {
       dirname(path).then(setRootDirBoth).catch(() => {});
     }
-  }, [editorRef, switchTab, flushCurrentTab, setTabsBoth, commitActive, wrapRef, setRootDirBoth]);
+  }, [editorRef, switchTab, flushCurrentTab, setTabsBoth, commitActive, wrapRef, setRootDirBoth, bumpFs]);
 
   const openFile = useCallback(async () => {
     const path = await open({ filters: [MD_FILTER] });
@@ -249,13 +297,38 @@ export function useFile(
     return dir;
   }, [setRootDirBoth]);
 
-  /** 保存当前 tab:有 path 直接写;无 path 弹 save dialog。Cmd+S 立即保存(绕 debounce)。 */
+  /** 另存为:总弹 dialog;写盘后 tab.path 更新(原磁盘文件不变,VS Code 式)。 */
+  const saveAsFile = useCallback(async () => {
+    const editor = editorRef.current;
+    const id = activeTabIdRef.current;
+    if (!editor || id == null) return;
+    // 源码模式时先把 textarea 内容写回 Milkdown,确保另存的是最新编辑
+    flushSourceRef.current?.();
+    const md = editor.getMarkdown();
+    const path = await save({ defaultPath: "untitled.md", filters: [MD_FILTER] });
+    if (!path) return;
+    try {
+      await writeFile(path, md);
+      // 另存为新路径后,deleted 状态清除:文件已落到新真实路径,恢复正常 tab 语义
+      setTabsBoth((prev) =>
+        prev.map((t) => (t.id === id ? { ...t, path, markdown: md, dirty: false, deleted: false } : t)),
+      );
+      if (!rootDirRef.current) dirname(path).then(setRootDirBoth).catch(() => {});
+    } catch (err) {
+      await showError("保存文件", err);
+    }
+  }, [editorRef, setTabsBoth, setRootDirBoth]);
+
+  /** 保存当前 tab:有 path 直接写;无 path 弹 save dialog。Cmd+S 立即保存(绕 debounce)。
+   *  deleted:文件已被外部删除,保存走另存为(不写回原路径,避免"复活"被删文件)。 */
   const saveFile = useCallback(async () => {
     const editor = editorRef.current;
     const id = activeTabIdRef.current;
     if (!editor || id == null) return;
     const tab = tabsRef.current.find((t) => t.id === id);
     if (!tab) return;
+    // deleted 走另存为:原路径已不存在,不能写回(否则偷偷重建被删文件)
+    if (tab.deleted) return saveAsFile();
     // 源码模式时先把 textarea 内容写回 Milkdown,确保保存的是最新编辑
     flushSourceRef.current?.();
     const md = editor.getMarkdown();
@@ -273,28 +346,7 @@ export function useFile(
     } catch (err) {
       await showError("保存文件", err);
     }
-  }, [editorRef, setTabsBoth, setRootDirBoth]);
-
-  /** 另存为:总弹 dialog;写盘后 tab.path 更新(原磁盘文件不变,VS Code 式)。 */
-  const saveAsFile = useCallback(async () => {
-    const editor = editorRef.current;
-    const id = activeTabIdRef.current;
-    if (!editor || id == null) return;
-    // 源码模式时先把 textarea 内容写回 Milkdown,确保另存的是最新编辑
-    flushSourceRef.current?.();
-    const md = editor.getMarkdown();
-    const path = await save({ defaultPath: "untitled.md", filters: [MD_FILTER] });
-    if (!path) return;
-    try {
-      await writeFile(path, md);
-      setTabsBoth((prev) =>
-        prev.map((t) => (t.id === id ? { ...t, path, markdown: md, dirty: false } : t)),
-      );
-      if (!rootDirRef.current) dirname(path).then(setRootDirBoth).catch(() => {});
-    } catch (err) {
-      await showError("保存文件", err);
-    }
-  }, [editorRef, setTabsBoth, setRootDirBoth]);
+  }, [editorRef, setTabsBoth, setRootDirBoth, saveAsFile]);
 
   /** 新建文件:在 rootDir 下创建 untitled-N.md(重名加序号)→ 写盘 → 打开 tab。
    *  创建后触发文件树重命名编辑态(pendingRename),聚焦让用户改名。
@@ -336,7 +388,8 @@ export function useFile(
 
   /** 关闭指定 tab(采纳自动保存策略):
    *  - path!=null 且 dirty:flush 保存后关(无确认);失败不关
-   *  - path==null 且 dirty:弹 save dialog;保存→关,取消→不关
+   *  - path!=null 且 dirty 且 !deleted:写回原路径后关
+   *  - deleted 或 path==null 且 dirty:弹 save dialog(不写回原路径,deleted 文件已不存在)
    *  - !dirty:直接关
    *  关闭 active 则激活相邻(优先右,次左);无邻→空态。 */
   const closeTab = useCallback(async (id: number) => {
@@ -345,7 +398,8 @@ export function useFile(
     const tab = tabsRef.current.find((t) => t.id === id);
     if (!tab) return;
     if (tab.dirty) {
-      if (tab.path != null) {
+      // deleted 的 tab 原文件已被删除,不能写回(否则重建被删文件)→ 走另存为
+      if (tab.path != null && !tab.deleted) {
         try {
           await writeFile(tab.path, tab.markdown);
         } catch (err) {
@@ -422,6 +476,8 @@ export function useFile(
     const ok = await ask(`确定删除 "${baseName(path)}"?此操作不可撤销。`, {
       title: "删除",
       kind: "warning",
+      okLabel: ZH_OK,
+      cancelLabel: ZH_CANCEL,
     });
     if (!ok) return;
     try {
@@ -445,7 +501,7 @@ export function useFile(
     if (!trimmed || trimmed === baseName(oldPath)) return false;
     const newPath = joinPath(parentDir(oldPath), trimmed);
     if (await pathExists(newPath)) {
-      await ask(`"${trimmed}" 已存在,请换个名字。`, { title: "重名", kind: "warning" });
+      await ask(`"${trimmed}" 已存在,请换个名字。`, { title: "重名", kind: "warning", okLabel: ZH_OK, cancelLabel: ZH_CANCEL });
       return false;
     }
     try {
@@ -469,7 +525,7 @@ export function useFile(
     const fname = /\.(md|markdown|mdown|mkd|txt)$/i.test(raw) ? raw : `${raw}.md`;
     const path = joinPath(dir, fname);
     if (await pathExists(path)) {
-      await ask(`"${fname}" 已存在,请换个名字。`, { title: "重名", kind: "warning" });
+      await ask(`"${fname}" 已存在,请换个名字。`, { title: "重名", kind: "warning", okLabel: ZH_OK, cancelLabel: ZH_CANCEL });
       return false;
     }
     try {
@@ -489,7 +545,7 @@ export function useFile(
     if (!raw) return false;
     const path = joinPath(dir, raw);
     if (await pathExists(path)) {
-      await ask(`"${raw}" 已存在,请换个名字。`, { title: "重名", kind: "warning" });
+      await ask(`"${raw}" 已存在,请换个名字。`, { title: "重名", kind: "warning", okLabel: ZH_OK, cancelLabel: ZH_CANCEL });
       return false;
     }
     try {
@@ -508,7 +564,9 @@ export function useFile(
   //   editor 是 active tab 的 source of truth,markdown 在下次切换时由 flushCurrentTab 同步。
   // 保存失败 showError 且保留 dirty(下次重试)。
   useEffect(() => {
-    const dirtyTabs = tabs.filter((t) => t.dirty && t.path != null);
+    // 跳过 deleted:文件已被外部删除,自动保存会偷偷把文件写回原路径"复活"它。
+    // deleted 的 tab 保存走另存为(saveFile/saveAsFile),不在此自动写盘。
+    const dirtyTabs = tabs.filter((t) => t.dirty && t.path != null && !t.deleted);
     if (dirtyTabs.length === 0) return;
     const timers = dirtyTabs.map((t) =>
     window.setTimeout(async () => {
@@ -554,6 +612,27 @@ export function useFile(
     );
     return () => timers.forEach((t) => clearTimeout(t));
   }, [tabs, setTabsBoth]);
+
+  // 窗口重新聚焦时刷新文件树:用户在 Finder 等外部工具增删文件后,切回应用自动同步。
+  // 仅 blur→focus 转换触发(避免首次挂载或持续聚焦时频繁刷新);有 rootDir 才刷。
+  // bumpFs() 兜底全刷:已展开目录按 shouldReloadChildren 重读,未展开目录不读。
+  // 同时 reconcileDeletedTabs:检测已打开文件被外部删除,标记 deleted(不偷偷写回)。
+  useEffect(() => {
+    let wasFocused = document.hasFocus();
+    const onFocus = () => {
+      if (wasFocused) return; // 持续聚焦不重复刷
+      wasFocused = true;
+      if (rootDirRef.current) bumpFs();
+      void reconcileDeletedTabs();
+    };
+    const onBlur = () => { wasFocused = false; };
+    window.addEventListener("focus", onFocus);
+    window.addEventListener("blur", onBlur);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("blur", onBlur);
+    };
+  }, [bumpFs, reconcileDeletedTabs]);
 
   // 派生(供现有消费者兼容)
   const activeTab = useMemo(

@@ -37,6 +37,11 @@
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
+/* 列表项被选中时去掉蓝色整行边框:ProseMirror-selectednode 的 outline 原为代码块/
+   表格/图片等块级节点设计,列表项(含任务列表)选中时整行蓝框过于突兀,仅文字高亮即可。 */
+.milkdown li.ProseMirror-selectednode {
+  outline: none;
+}
 
 /* 标题 — 克制层级 */
 .milkdown h1,
@@ -90,42 +95,49 @@
 .milkdown li { margin: 0.3em 0; }
 .milkdown li > p { margin: 0; }
 
-/* 任务列表 */
+/* 任务列表:SVG 勾选框(decoration widget 注入,见 taskCheckboxPlugin)。
+ * 单条 path(方框轮廓+对钩+重复方框),pathLength=575.05:
+ *   未选中 dash=241/offset=0 → 可见窗口 [0,241] = 方框
+ *   选中   dash=70.5/offset=-262.27 → 可见窗口 [262,333] = 对钩
+ * 动画由 click handler 用 rAF 同时插值 dasharray 与 dashoffset
+ * (WebKit 不支持 dasharray 列表值过渡;dispatch 重建 DOM 丢起点 → JS 在旧 DOM 上动画)。
+ * 透明 hit rect 覆盖整个 viewBox,让复选框区域统一响应光标与点击。 */
 .milkdown ul li[data-checked] {
   list-style: none;
   position: relative;
-  padding-left: 1.5em;
+  padding-left: 1.7em;
 }
-.milkdown ul li[data-checked]::before {
-  content: "";
+.milkdown ul li[data-checked] .task-cb {
   position: absolute;
   left: 0;
-  top: 0.35em;
-  width: 0.9em;
-  height: 0.9em;
-  border: 1.5px solid var(--text-tertiary);
-  border-radius: 3px;
-  background: transparent;
-  cursor: pointer;
-  transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+  top: 0.25em;
+  width: 1.2em;
+  height: 1.2em;
+  overflow: visible;
+  cursor: pointer; /* 复选框区域鼠标指针 */
+  pointer-events: auto; /* svg 接收点击,冒泡到 li click handler 翻转 checked */
 }
-.milkdown ul li[data-checked]:hover::before {
-  border-color: var(--accent);
+.milkdown ul li[data-checked] .task-cb-hit {
+  fill: transparent;
+  pointer-events: fill; /* 透明命中区,让整个复选框区域可点击/响应光标 */
 }
-.milkdown ul li[data-checked="true"]::before {
-  background: var(--accent);
-  border-color: var(--accent);
+.milkdown ul li[data-checked] .path {
+  fill: none;
+  stroke: var(--text-tertiary);
+  stroke-width: 6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 241 9999999; /* 未选中:可见段长 241 = 方框 */
+  stroke-dashoffset: 0;
+  pointer-events: none; /* 由 hit rect 统一处理命中 */
 }
-.milkdown ul li[data-checked="true"]::after {
-  content: "";
-  position: absolute;
-  left: 0.25em;
-  top: 0.45em;
-  width: 0.4em;
-  height: 0.25em;
-  border-left: 1.5px solid #fff;
-  border-bottom: 1.5px solid #fff;
-  transform: rotate(-45deg);
+.milkdown ul li[data-checked="true"] .path {
+  stroke: var(--accent);
+  stroke-dasharray: 70.5096664428711 9999999; /* 选中:可见段长 70.5 = 对钩 */
+  stroke-dashoffset: -262.2723388671875; /* 偏移到对钩段 */
+}
+.milkdown ul li[data-checked]:hover .path {
+  stroke: var(--accent); /* hover 反馈:变主题色 */
 }
 
 /* 行内代码 */

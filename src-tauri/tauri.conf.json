@@ -52,6 +52,9 @@
     ],
     "fileAssociations": [
       { "ext": ["md", "markdown"], "mimeType": "text/markdown" }
-    ]
+    ],
+    "macOS": {
+      "infoPlist": "Info.plist"
+    }
   }
 }

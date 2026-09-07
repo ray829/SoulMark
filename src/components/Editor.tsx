@@ -16,6 +16,7 @@ import { listener, listenerCtx } from "@milkdown/kit/plugin/listener";
 import { history, undoCommand, redoCommand } from "@milkdown/kit/plugin/history";
 import { $prose, replaceAll } from "@milkdown/kit/utils";
 import { EditorState, TextSelection, Plugin } from "@milkdown/kit/prose/state";
+import { Decoration, DecorationSet } from "@milkdown/kit/prose/view";
 import { Milkdown, MilkdownProvider, useEditor } from "@milkdown/react";
 import { codeBlockViewPlugin } from "./editor-views/CodeBlockView";
 import { shikiHighlightPlugin } from "./editor-views/ShikiHighlightPlugin";
@@ -31,15 +32,87 @@ import { message } from "@tauri-apps/plugin-dialog";
 import "katex/dist/katex.min.css";
 import "../styles/editor.css";
 
-/** GFM 任务列表勾选:Milkdown gfm 的 task list 复用 list_item 节点
- *  (attrs.checked 非 null 即 task 项),toDOM 仅输出 <li data-checked>,
- *  无内置可点击元素。这里用 ProseMirror 的 DOM 事件拦截点击:命中 li 左侧
- *  padding(伪元素 checkbox 占位)区 → setNodeMarkup 翻转 checked。
- *  返回 true 阻止 ProseMirror 把光标移到点击位置(点 checkbox 只切换、不挪光标)。 */
+/** 单条 path:前 241 = 方框轮廓,中段 ~70 = 对钩,后段 = 重复方框(防偏移漏显)。
+ *  pathLength=575.05:未选中 dash=241/offset=0 显示方框;选中 dash=70.5/offset=-262.27 显示对钩。
+ *  选中时把"可见窗口"从方框段滑到对钩段 —— 方框随过渡消失,只剩对钩。 */
+const TASK_PATH_D =
+  "M 0 16 V 56 A 8 8 90 0 0 8 64 H 56 A 8 8 90 0 0 64 56 V 8 A 8 8 90 0 0 56 0 H 8 A 8 8 90 0 0 0 8 V 16 L 32 48 L 64 16 V 8 A 8 8 90 0 0 56 0 H 8 A 8 8 90 0 0 0 8 V 56 A 8 8 90 0 0 8 64 H 56 A 8 8 90 0 0 64 56 V 16";
+const TASK_PATH_LENGTH = 575.0541381835938;
+// 未选中:可见窗口 [0, 241] = 方框
+const DASH_UNCHECKED = 241;
+const OFFSET_UNCHECKED = 0;
+// 选中:可见窗口 [262.27, 332.77] = 对钩
+const DASH_CHECKED = 70.5096664428711;
+const OFFSET_CHECKED = -262.2723388671875;
+/** draw 动画时长(ms) */
+const CHECK_ANIM_MS = 400;
+
+/** 创建勾选框 SVG widget DOM 节点(装饰性,不可编辑,点击穿透到 li)。
+ *  单条 path + 透明命中区。 */
+function createCheckboxEl(): HTMLElement {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("class", "task-cb");
+  svg.setAttribute("viewBox", "0 0 64 64");
+  svg.setAttribute("aria-hidden", "true");
+  // 透明命中区:覆盖整个 viewBox,让复选框区域(含描边间空白)统一响应光标与点击。
+  const hit = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+  hit.setAttribute("class", "task-cb-hit");
+  hit.setAttribute("x", "-6");
+  hit.setAttribute("y", "-6");
+  hit.setAttribute("width", "76");
+  hit.setAttribute("height", "76");
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("class", "path");
+  path.setAttribute("d", TASK_PATH_D);
+  path.setAttribute("pathLength", String(TASK_PATH_LENGTH));
+  svg.appendChild(hit);
+  svg.appendChild(path);
+  return svg as unknown as HTMLElement;
+}
+
+/** 在旧 svg 的单条 path 上同时插值 dasharray(dash 段长)+ dashoffset(偏移)。
+ *  选中:dash 241→70.5、offset 0→-262.27,可见窗口从方框段滑到对钩段(方框消失,对钩出现)。
+ *  取消:反向。用 rAF 手动插值(WebKit 不支持 dasharray 列表值过渡;dispatch 重建 DOM 丢起点)。 */
+function animateToggle(pathEl: SVGPathElement, toChecked: boolean): Promise<void> {
+  return new Promise((resolve) => {
+    const fromDash = toChecked ? DASH_UNCHECKED : DASH_CHECKED;
+    const toDash = toChecked ? DASH_CHECKED : DASH_UNCHECKED;
+    const fromOffset = toChecked ? OFFSET_UNCHECKED : OFFSET_CHECKED;
+    const toOffset = toChecked ? OFFSET_CHECKED : OFFSET_UNCHECKED;
+    const start = performance.now();
+    const ease = (t: number) => t * (2 - t); // easeOutQuad
+    const step = (now: number) => {
+      const t = Math.min(1, (now - start) / CHECK_ANIM_MS);
+      const e = ease(t);
+      const dash = fromDash + (toDash - fromDash) * e;
+      const offset = fromOffset + (toOffset - fromOffset) * e;
+      pathEl.style.strokeDasharray = `${dash} 9999999`;
+      pathEl.style.strokeDashoffset = String(offset);
+      if (t < 1) requestAnimationFrame(step);
+      else resolve();
+    };
+    requestAnimationFrame(step);
+  });
+}
+
 const taskCheckboxPlugin = $prose(
   () =>
     new Plugin({
       props: {
+        decorations(state) {
+          const decos: Decoration[] = [];
+          state.doc.descendants((node, pos) => {
+            if (node.type.name !== "list_item") return;
+            if (node.attrs.checked == null) return;
+            decos.push(
+              Decoration.widget(pos + 1, createCheckboxEl, {
+                side: -1,
+                key: `task-cb-${pos}`,
+              }),
+            );
+          });
+          return decos.length > 0 ? DecorationSet.create(state.doc, decos) : DecorationSet.empty;
+        },
         handleDOMEvents: {
           click: (view, event) => {
             const target = event.target;
@@ -59,12 +132,29 @@ const taskCheckboxPlugin = $prose(
             }
             const node = view.state.doc.nodeAt(liPos);
             if (!node || node.type.name !== "list_item" || node.attrs.checked == null) return false;
-            view.dispatch(
-              view.state.tr.setNodeMarkup(liPos, undefined, {
-                ...node.attrs,
-                checked: !node.attrs.checked,
-              }),
-            );
+            const willCheck = !node.attrs.checked;
+            // 先在旧 svg 上跑 draw-on/off 动画,再 dispatch 落实状态。
+            // setNodeMarkup 会重建 li 及 widget,新 DOM 无过渡起点,故动画须在旧 DOM 上完成。
+            const pathEl = li.querySelector(".path") as SVGPathElement | null;
+            if (pathEl) {
+              // 在旧 svg 的单条 path 上跑 dash 滑动动画,再 dispatch 落实状态。
+              // setNodeMarkup 会重建 li 及 widget,新 DOM 无过渡起点,故动画须在旧 DOM 上完成后才 dispatch。
+              void animateToggle(pathEl, willCheck).then(() => {
+                view.dispatch(
+                  view.state.tr.setNodeMarkup(liPos, undefined, {
+                    ...node.attrs,
+                    checked: willCheck,
+                  }),
+                );
+              });
+            } else {
+              view.dispatch(
+                view.state.tr.setNodeMarkup(liPos, undefined, {
+                  ...node.attrs,
+                  checked: willCheck,
+                }),
+              );
+            }
             return true;
           },
         },

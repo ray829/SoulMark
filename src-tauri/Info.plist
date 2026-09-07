@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- 声明应用支持的本地化语言,让 macOS 原生 NSOpenPanel/NSSavePanel
+	     在中文系统下显示"打开/取消"等中文按钮,而非回退到 English。 -->
+	<key>CFBundleDevelopmentRegion</key>
+	<string>zh_CN</string>
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>zh_CN</string>
+		<string>zh-Hans</string>
+		<string>en</string>
+	</array>
+</dict>
+</plist>

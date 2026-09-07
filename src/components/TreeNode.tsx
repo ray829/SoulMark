@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
+import { message } from "@tauri-apps/plugin-dialog";
 import {
   ChevronDown,
   ChevronRight,
@@ -9,6 +11,33 @@ import {
 import type { MenuItem } from "./ContextMenu";
 import { readChildren, shouldReloadChildren, type FileNode, type TreeCtx } from "../hooks/useFileTree";
 import { isMarkdown } from "../utils/path";
+import { isWindows } from "../utils/platform";
+
+/** "在文件管理器中显示"文案:macOS → Finder,Windows → 资源管理器 */
+const REVEAL_LABEL = isWindows ? "在资源管理器中显示" : "在 Finder 中显示";
+
+/** 复制文本到系统剪贴板。静默失败:剪贴板权限异常不应打断用户流程。 */
+async function copyText(text: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    /* 静默忽略 */
+  }
+}
+
+/** 在系统文件管理器中定位文件/文件夹。失败弹错误框。 */
+async function revealInDir(path: string): Promise<void> {
+  try {
+    await revealItemInDir(path);
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    await message(`无法定位文件：${detail}`, {
+      title: "在文件夹中显示",
+      kind: "error",
+      buttons: { ok: "确定" },
+    });
+  }
+}
 
 /** 渲染 depth 条缩进辅助线 */
 function Indents({ depth }: { depth: number }) {
@@ -159,6 +188,9 @@ export function TreeNode({
               }),
           },
           { key: "s1", separator: true },
+          { key: "copy-path", label: "复制路径", onClick: () => void copyText(node.fullPath) },
+          { key: "reveal", label: REVEAL_LABEL, onClick: () => void revealInDir(node.fullPath) },
+          { key: "s2", separator: true },
           { key: "rename", label: "重命名", onClick: () => setRenameMode(true) },
           {
             key: "del",
@@ -170,6 +202,10 @@ export function TreeNode({
       : [
           { key: "open", label: "打开", onClick: () => onSelect(node.fullPath) },
           { key: "s1", separator: true },
+          { key: "copy-path", label: "复制路径", onClick: () => void copyText(node.fullPath) },
+          { key: "copy-name", label: "复制文件名", onClick: () => void copyText(node.name) },
+          { key: "reveal", label: REVEAL_LABEL, onClick: () => void revealInDir(node.fullPath) },
+          { key: "s2", separator: true },
           { key: "rename", label: "重命名", onClick: () => setRenameMode(true) },
           {
             key: "del",
