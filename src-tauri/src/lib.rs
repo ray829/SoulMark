@@ -1,6 +1,7 @@
 use std::path::Path;
 use std::sync::Mutex;
 use tauri::{Emitter, Manager};
+use base64::Engine as _;
 
 /// 安全删除:取代前端直连 `fs:allow-remove`。
 /// 即便前端被注入恶意 JS,也无法越权删除家目录/系统根等危险路径。
@@ -55,6 +56,46 @@ fn home_dir() -> Option<std::path::PathBuf> {
         .map(std::path::PathBuf::from)
 }
 
+/// 图片代理:绕过图床防盗链。
+///
+/// 部分图床(如 haowallpaper.com)检查 Referer/Origin,对来自 webview 的请求
+/// (Origin: tauri://localhost 或 http://localhost:1420)返回 403 防盗链。
+/// 前端 <img> 和 fetch 都带 webview 的 Origin → 都被拦。
+/// 此 command 在 Rust 侧用 reqwest 请求(默认不发 Referer/Origin),拿到图片字节后
+/// 经 IPC 返回 base64,前端转 blob 显示。
+///
+/// 返回 (base64_bytes, content_type)。
+#[tauri::command]
+fn proxy_image(url: String) -> Result<(String, String), String> {
+    let client = reqwest::blocking::Client::builder()
+        .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15")
+        .timeout(std::time::Duration::from_secs(15))
+        .gzip(true) // 部分图床强制 gzip,reqwest 默认不解压 → blob 是 gzip 流,webview 解码失败
+        .build()
+        .map_err(|e| format!("reqwest client build failed: {e}"))?;
+
+    let resp = client
+        .get(&url)
+        .send()
+        .map_err(|e| format!("request failed: {e}"))?;
+
+    let status = resp.status();
+    if !status.is_success() {
+        return Err(format!("HTTP {status}"));
+    }
+    let content_type = resp
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("image/jpeg")
+        .to_string();
+    let bytes = resp
+        .bytes()
+        .map_err(|e| format!("read body failed: {e}"))?;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    Ok((b64, content_type))
+}
+
 /// 待打开文件队列:系统在应用启动/运行中通过文件关联投递的 .md 路径暂存于此,
 /// 供前端冷启动时 invoke('opened_files') 拉取;同时通过 emit('opened-files') 推送。
 /// 双保险:冷启动时事件可能先于前端 listen 注册到达 → state 兜底;热启动靠 emit。
@@ -95,7 +136,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
         .manage(PendingFiles::default())
-        .invoke_handler(tauri::generate_handler![safe_remove, opened_files])
+        .invoke_handler(tauri::generate_handler![safe_remove, opened_files, proxy_image])
         .setup(|app| {
             // Windows 冷启动:双击文件唤起应用,文件路径作为 argv 传入。
             // setup 早于前端 webview 加载,此处存入 state,前端 invoke 时可拿到。

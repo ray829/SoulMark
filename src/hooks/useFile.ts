@@ -289,13 +289,45 @@ export function useFile(
   }, [openByPath]);
 
   /** 打开文件夹:以所选目录为文件树根(不打开具体文件)。
-   *  返回所选目录路径,用户取消时返回 null(供调用方据此做后续 UI 反馈)。 */
+   *  返回所选目录路径,用户取消时返回 null(供调用方据此做后续 UI 反馈)。
+   *  切换文件夹 = 换工作区:已打开的文件应全部关闭(dirty 的先保存,沿用 closeTab
+   *  约定:有 path 非 deleted 写回原路径;untitled/deleted 弹 save dialog 让用户决定,
+   *  取消即丢弃该文件内容)。保存失败不阻断切换(继续切到新文件夹)。 */
   const openFolder = useCallback(async (): Promise<string | null> => {
     const dir = await open({ directory: true });
     if (typeof dir !== "string") return null;
+    // 先 flush 当前 active,把 editor 最新内容写回 tab.markdown,供下方批量保存读到
+    flushCurrentTab();
+    const cur = tabsRef.current;
+    if (cur.length > 0) {
+      for (const t of cur) {
+        if (!t.dirty) continue;
+        if (t.path != null && !t.deleted) {
+          try {
+            await writeFile(t.path, t.markdown);
+          } catch (err) {
+            await showError("保存文件", err);
+          }
+        } else {
+          // 未命名 / 已删除:弹 save dialog 让用户选保存位置,取消即丢弃
+          const path = await save({ defaultPath: "untitled.md", filters: [MD_FILTER] });
+          if (path) {
+            try {
+              await writeFile(path, t.markdown);
+            } catch (err) {
+              await showError("保存文件", err);
+            }
+          }
+        }
+      }
+      // 清空所有 tabs + editor,进入空态
+      setTabsBoth(() => []);
+      editorRef.current?.setMarkdown("");
+      commitActive(null);
+    }
     setRootDirBoth(dir);
     return dir;
-  }, [setRootDirBoth]);
+  }, [flushCurrentTab, setTabsBoth, editorRef, commitActive, setRootDirBoth]);
 
   /** 另存为:总弹 dialog;写盘后 tab.path 更新(原磁盘文件不变,VS Code 式)。 */
   const saveAsFile = useCallback(async () => {

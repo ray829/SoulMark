@@ -225,18 +225,18 @@
   color: var(--text);
 }
 
-/* 编辑区选中文本高亮 */
+/* 编辑区选区高亮:用 ProseMirror decoration 精确涂色文字范围,替代原生 ::selection。
+   原生 ::selection 跨段选区会「填充」块间 margin 间隙——段落之间的空白也被涂色,
+   与文字高亮割裂(空段落曾用 p:has(>br:only-child)::selection 透明单独处理,但
+   非空段落间的 margin 间隙仍被涂色)。现由 SelectionHighlightPlugin 用 inline
+   decoration 只覆盖选区文本节点范围,块间 DOM 边界(无文本节点)不被涂色 → 仅文字
+   高亮,块间间隙不涂。::selection 设透明避免双高亮;caret 颜色不受 ::selection
+   影响,光标仍可见。空段落天然不涂(无文本节点),无需额外规则。 */
 .milkdown .ProseMirror ::selection {
-  background: var(--accent-bg);
-}
-/* 空段落(ProseMirror 渲染为 <p><br></p>)在选区内不高亮:
-   跨段选区时,空行整行被 ::selection 涂蓝,与上下文字高亮割裂,视觉上像
-   「空白行也被选中了」。这里让空段落内的选区背景透明,空行不再显眼高亮,
-   只保留有文字部分的高亮。仅匹配「只含 <br>」的空段落——ProseMirror 标准
-   下非空段落末尾无 <br>,br:only-child 精确区分空/非空段落,有文字的段落不受影响。 */
-.milkdown .ProseMirror p:has(> br:only-child)::selection,
-.milkdown .ProseMirror p:has(> br:only-child) ::selection {
   background: transparent;
+}
+.milkdown .ProseMirror .selection-highlight {
+  background: var(--accent-bg);
 }
 
 /* 图片放大预览层 */

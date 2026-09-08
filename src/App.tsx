@@ -205,6 +205,14 @@ function App() {
     };
   }, [consumeOpenFiles]);
 
+  // 编辑器可编辑态随 activeTabId 驱动:空态(无 tab)设为不可编辑,从源头禁止
+  // contenteditable 输入与 caret,避免 Welcome 覆盖层下残留焦点导致「光标在欢迎页
+  // 且能输入」。覆盖所有进入/退出空态的路径(openFolder 切目录、closeTab 关到最后一个、
+  // newFile/openByPath 打开文件)。editorReady 依赖确保编辑器就绪后才调用。
+  useEffect(() => {
+    editorRef.current?.setEditable(activeTabId != null);
+  }, [activeTabId, editorReady]);
+
   // 顶部标签偏移:
   // - 展开态:贴侧栏右缘(app-body 无 padding/gap),= sidebarWidth
   // - 收起态:贴主题切换按钮右侧让位(侧栏按钮区 10+30 + 间隙 8 + 主题按钮 30 + 间隙 10 = 88)。

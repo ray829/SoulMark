@@ -10,7 +10,7 @@ import {
   editorStateOptionsCtx,
   prosePluginsCtx,
 } from "@milkdown/kit/core";
-import { commonmark, insertImageCommand } from "@milkdown/kit/preset/commonmark";
+import { commonmark, insertImageCommand, insertImageInputRule } from "@milkdown/kit/preset/commonmark";
 import { gfm } from "@milkdown/kit/preset/gfm";
 import { listener, listenerCtx } from "@milkdown/kit/plugin/listener";
 import { history, undoCommand, redoCommand } from "@milkdown/kit/plugin/history";
@@ -24,10 +24,11 @@ import { mathPlugins } from "./editor-views/MathView";
 import { mermaidPlugins } from "./editor-views/MermaidView";
 import { markPlugins } from "./editor-views/MarkView";
 import { selectionTrackerPlugin } from "./editor-views/SelectionTrackerPlugin";
+import { selectionHighlightPlugin } from "./editor-views/SelectionHighlightPlugin";
 import { imageDropPlugin, type ImageInsertPayload } from "./editor-views/ImageDropPlugin";
 import { SelectionToolbar } from "./SelectionToolbar";
 import { sanitizeHtml, sanitizeUrl } from "../utils/sanitize";
-import { resolveImageSrc, saveImageAsset } from "../utils/image";
+import { resolveImageSrc, saveImageAsset, fetchFallbackImage } from "../utils/image";
 import { message } from "@tauri-apps/plugin-dialog";
 import "katex/dist/katex.min.css";
 import "../styles/editor.css";
@@ -176,11 +177,22 @@ function firstTagName(html: string): string {
   return m ? m[1].toLowerCase() : "";
 }
 
+/** 是否 http(s) 外链(用于图片破图兜底判定)。 */
+function isHttpSrc(src: string): boolean {
+  const s = src.trim().toLowerCase();
+  return s.startsWith("http://") || s.startsWith("https://");
+}
+
 /** 编辑器对外接口：读取/写入 Markdown 源码 + 光标位置存取 */
 export interface EditorHandle {
   getMarkdown: () => string;
   setMarkdown: (md: string) => void;
   focusEditor: () => void;
+  /** 设置编辑器可编辑态:空态(无 active tab)设 false,从源头禁止 contenteditable
+   *  输入与 caret,避免 Welcome 覆盖层下残留焦点导致「光标在欢迎页且能输入」。
+   *  设 true 时同步 focus(接管 setMarkdown 在 editable=false 时无效的 focus);
+   *  设 false 时 blur 移除焦点。由 App 据 activeTabId 集中驱动,覆盖所有空态路径。 */
+  setEditable: (editable: boolean) => void;
   undo: () => void;
   redo: () => void;
   /** 读取当前选区位置(anchor/head 为 ProseMirror doc 位置)。无选区返回 null。 */
@@ -230,6 +242,11 @@ const InnerEditor = forwardRef<EditorHandle, EditorProps>(function InnerEditor(
       el.setAttribute("src", "");
       return;
     }
+    // 外链破图兜底:图床防盗链(403)/强制 gzip(<img> 不解压)等导致 webview 加载失败,
+    // onerror 时改走 fetch → Rust 代理两级兜底(见 fetchFallbackImage)。
+    if (isHttpSrc(raw) && !el.dataset.imgFallback) {
+      el.addEventListener("error", () => void fetchFallbackImage(el, raw), { once: true });
+    }
     void resolveImageSrc(raw, filePathRef.current).then((resolved) => {
       if (resolved && resolved !== el.getAttribute("src")) {
         el.setAttribute("src", resolved);
@@ -258,7 +275,12 @@ const InnerEditor = forwardRef<EditorHandle, EditorProps>(function InnerEditor(
       .use(markPlugins as never)
       .use(taskCheckboxPlugin)
       .use(selectionTrackerPlugin)
-      .use(imageDropPlugin);
+      .use(selectionHighlightPlugin)
+      .use(imageDropPlugin)
+      // 手动输入 ![alt](url) 即时转 image node。
+      // commonmark preset 的 inputRules 数组漏了 insertImageInputRule(仅定义未注册),
+      // 不补这行则逐字输入图片语法只会留在文本态、显示为源码。
+      .use(insertImageInputRule);
     editorRef.current = editor;
     return editor;
   });
@@ -422,6 +444,21 @@ const InnerEditor = forwardRef<EditorHandle, EditorProps>(function InnerEditor(
         editor.action((ctx) => {
           const view = ctx.get(editorViewCtx);
           view.focus();
+        });
+      },
+      setEditable: (editable: boolean) => {
+        const editor = get() ?? editorRef.current;
+        if (!editor) return;
+        editor.action((ctx) => {
+          const view = ctx.get(editorViewCtx);
+          view.setProps({ editable: () => editable });
+          // 设为可编辑时同步 focus(打开文件场景:setMarkdown 的 focus 在 editable=false
+          // 期间调用无效,此处 editable 恢复 true 后接管 focus);不可编辑时 blur 移除焦点。
+          if (editable) {
+            view.focus();
+          } else {
+            view.dom.blur();
+          }
         });
       },
       undo: () => {
