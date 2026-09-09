@@ -26,11 +26,15 @@ import { markPlugins } from "./editor-views/MarkView";
 import { selectionTrackerPlugin } from "./editor-views/SelectionTrackerPlugin";
 import { selectionHighlightPlugin } from "./editor-views/SelectionHighlightPlugin";
 import { imageDropPlugin, type ImageInsertPayload } from "./editor-views/ImageDropPlugin";
+import { imageSelectPlugin } from "./editor-views/ImageSelectPlugin";
+import { imageCodePlugin } from "./editor-views/ImageCodePlugin";
+import { imageCenterPlugin } from "./editor-views/ImageCenterPlugin";
 import { SelectionToolbar } from "./SelectionToolbar";
 import { sanitizeHtml, sanitizeUrl } from "../utils/sanitize";
-import { resolveImageSrc, saveImageAsset, fetchFallbackImage } from "../utils/image";
+import { resolveImageSrc, saveImageAsset, proxyImageSrc } from "../utils/image";
 import { message } from "@tauri-apps/plugin-dialog";
-import "katex/dist/katex.min.css";
+// katex.min.css 不在此静态导入:MathView 按需动态 import("katex") 时一并加载
+// (Vite 拆为独立 CSS chunk),避免首屏无公式时阻塞渲染(28K CSS)。
 import "../styles/editor.css";
 
 /** 单条 path:前 241 = 方框轮廓,中段 ~70 = 对钩,后段 = 重复方框(防偏移漏显)。
@@ -214,10 +218,12 @@ interface EditorProps {
   /** 当前打开的 md 文件绝对路径,供渲染层把本地图片相对路径解析为 webview 可访问 URL。
    *  null/undefined = 未保存新文件(无基准目录,相对路径图片无法解析,裂图合理)。 */
   filePath?: string | null;
+  /** 选中图片后点放大按钮时触发(由 App 层 setPreview 打开 lightbox)。 */
+  onPreview?: (img: { src: string; alt: string }) => void;
 }
 
 const InnerEditor = forwardRef<EditorHandle, EditorProps>(function InnerEditor(
-  { initialMarkdown = "", onChange, onReady, filePath },
+  { initialMarkdown = "", onChange, onReady, filePath, onPreview },
   ref,
 ) {
   const editorRef = useRef<Editor | null>(null);
@@ -229,6 +235,12 @@ const InnerEditor = forwardRef<EditorHandle, EditorProps>(function InnerEditor(
   useEffect(() => {
     filePathRef.current = filePath;
   }, [filePath]);
+  // onPreview ref 镜像:同 filePathRef,Milkdown 创建时 get 回调只跑一次,
+  // imageCodePlugin 工厂闭包捕获此 ref 拿最新回调,避免 stale closure。
+  const onPreviewRef = useRef(onPreview);
+  useEffect(() => {
+    onPreviewRef.current = onPreview;
+  }, [onPreview]);
 
   // 本地图片路径 → webview 可访问 URL:把相对/绝对/file:// 路径转为 convertFileSrc 输出。
   // 仅改 DOM 不改 doc:md 保留原始路径,保存后仍是原始路径(Typora/Obsidian 习惯)。
@@ -242,10 +254,32 @@ const InnerEditor = forwardRef<EditorHandle, EditorProps>(function InnerEditor(
       el.setAttribute("src", "");
       return;
     }
+    const external = isHttpSrc(raw);
+    // 异步解码:所有图都不阻塞主线程(长文档多图卡顿主因之一)。幂等,已有则不覆盖。
+    if (!el.getAttribute("decoding")) el.setAttribute("decoding", "async");
+    // 加载策略:
+    //  外链图 eager —— 必须立即加载,确保 onerror 兜底及时触发。若用 lazy,手动插入的
+    //    外链防盗链图在尚未完成布局时会被 WebView 推迟加载 → onerror 不触发 → 代理兜底
+    //    永不启动 → 一直裂图(打开文档时图已布局故 lazy 侥幸能用,手动插入则必现)。
+    //  本地图 lazy —— 减压,本地加载快且无需 onerror 兜底。
+    if (external) {
+      el.setAttribute("loading", "eager");
+    } else if (!el.getAttribute("loading")) {
+      el.setAttribute("loading", "lazy");
+    }
     // 外链破图兜底:图床防盗链(403)/强制 gzip(<img> 不解压)等导致 webview 加载失败,
-    // onerror 时改走 fetch → Rust 代理两级兜底(见 fetchFallbackImage)。
-    if (isHttpSrc(raw) && !el.dataset.imgFallback) {
-      el.addEventListener("error", () => void fetchFallbackImage(el, raw), { once: true });
+    // onerror 时把 src 换成 imgproxy 协议 URL,Rust 侧 reqwest 绕防盗链 + 解 gzip,
+    // 字节流式返回,<img> 直连协议 URL,不经 JS 堆/IPC/objectURL(无内存放大)。
+    if (external && !el.dataset.imgFallback) {
+      el.dataset.imgFallback = "1";
+      el.addEventListener(
+        "error",
+        () => {
+          const proxied = proxyImageSrc(raw);
+          if (proxied !== el.getAttribute("src")) el.setAttribute("src", proxied);
+        },
+        { once: true },
+      );
     }
     void resolveImageSrc(raw, filePathRef.current).then((resolved) => {
       if (resolved && resolved !== el.getAttribute("src")) {
@@ -277,6 +311,9 @@ const InnerEditor = forwardRef<EditorHandle, EditorProps>(function InnerEditor(
       .use(selectionTrackerPlugin)
       .use(selectionHighlightPlugin)
       .use(imageDropPlugin)
+      .use(imageSelectPlugin)
+      .use(imageCodePlugin(() => onPreviewRef.current))
+      .use(imageCenterPlugin)
       // 手动输入 ![alt](url) 即时转 image node。
       // commonmark preset 的 inputRules 数组漏了 insertImageInputRule(仅定义未注册),
       // 不补这行则逐字输入图片语法只会留在文本态、显示为源码。

@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::sync::Mutex;
 use tauri::{Emitter, Manager};
-use base64::Engine as _;
+use percent_encoding::percent_decode;
 
 /// 安全删除:取代前端直连 `fs:allow-remove`。
 /// 即便前端被注入恶意 JS,也无法越权删除家目录/系统根等危险路径。
@@ -56,44 +56,44 @@ fn home_dir() -> Option<std::path::PathBuf> {
         .map(std::path::PathBuf::from)
 }
 
-/// 图片代理:绕过图床防盗链。
-///
-/// 部分图床(如 haowallpaper.com)检查 Referer/Origin,对来自 webview 的请求
-/// (Origin: tauri://localhost 或 http://localhost:1420)返回 403 防盗链。
-/// 前端 <img> 和 fetch 都带 webview 的 Origin → 都被拦。
-/// 此 command 在 Rust 侧用 reqwest 请求(默认不发 Referer/Origin),拿到图片字节后
-/// 经 IPC 返回 base64,前端转 blob 显示。
-///
-/// 返回 (base64_bytes, content_type)。
-#[tauri::command]
-fn proxy_image(url: String) -> Result<(String, String), String> {
-    let client = reqwest::blocking::Client::builder()
-        .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15")
-        .timeout(std::time::Duration::from_secs(15))
-        .gzip(true) // 部分图床强制 gzip,reqwest 默认不解压 → blob 是 gzip 流,webview 解码失败
-        .build()
-        .map_err(|e| format!("reqwest client build failed: {e}"))?;
-
-    let resp = client
-        .get(&url)
-        .send()
-        .map_err(|e| format!("request failed: {e}"))?;
-
-    let status = resp.status();
-    if !status.is_success() {
-        return Err(format!("HTTP {status}"));
+/// imgproxy 协议处理器:用 reqwest 异步取图,返回 http 响应(字节流式)。
+/// 不发 Origin/Referer(绕防盗链) + .gzip(true)(解强制 gzip)。
+/// 失败返回非 2xx 空体,前端 <img> onerror 静默裂图(已无更深的 JS 兜底,无需 base64 中转)。
+async fn build_img_response(
+    client: &reqwest::Client,
+    url: &str,
+) -> tauri::http::Response<Vec<u8>> {
+    use tauri::http::Response;
+    let build_err = |status: u16| {
+        Response::builder()
+            .status(status)
+            .body(Vec::new())
+            .unwrap_or_else(|_| {
+                Response::builder()
+                    .status(502)
+                    .body(Vec::new())
+                    .unwrap()
+            })
+    };
+    match client.get(url).send().await {
+        Ok(r) if r.status().is_success() => {
+            let ct = r
+                .headers()
+                .get(reqwest::header::CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("image/jpeg")
+                .to_string();
+            let bytes = r.bytes().await.unwrap_or_default();
+            Response::builder()
+                .status(200)
+                .header("Content-Type", ct)
+                .header("Cache-Control", "public, max-age=86400")
+                .body(bytes.to_vec())
+                .unwrap_or_else(|_| build_err(502))
+        }
+        Ok(r) => build_err(r.status().as_u16()),
+        Err(_) => build_err(502),
     }
-    let content_type = resp
-        .headers()
-        .get(reqwest::header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("image/jpeg")
-        .to_string();
-    let bytes = resp
-        .bytes()
-        .map_err(|e| format!("read body failed: {e}"))?;
-    let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
-    Ok((b64, content_type))
 }
 
 /// 待打开文件队列:系统在应用启动/运行中通过文件关联投递的 .md 路径暂存于此,
@@ -126,7 +126,35 @@ fn extract_md_args(args: &[String]) -> Vec<String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // imgproxy 自定义协议:<img src="imgproxy://localhost/<encoded url>"> 由 Rust 侧 reqwest
+    // 请求图片(不发 Origin/Referer 绕防盗链 + .gzip(true) 解强制 gzip),字节流式作为协议响应体返回。
+    // 前端 <img> 直连协议 URL,字节不经 JS 堆/IPC,无 base64 放大、无 objectURL 泄漏。
+    // 客户端只建一次:连接池复用,避免每张图新建 client。
+    let img_client = reqwest::Client::builder()
+        .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15")
+        .timeout(std::time::Duration::from_secs(15))
+        .gzip(true)
+        .build()
+        .expect("imgproxy reqwest client build failed");
+
     let builder = tauri::Builder::default()
+        .register_asynchronous_uri_scheme_protocol(
+            "imgproxy",
+            move |_ctx, request, responder| {
+                let client = img_client.clone();
+                tauri::async_runtime::spawn(async move {
+                    // path 形如 /<percent-encoded url>;去前导 / 后 percent_decode 得目标 URL。
+                    // 前端用 convertFileSrc(url,"imgproxy") 生成,encodeURIComponent 编码。
+                    let path = request.uri().path();
+                    let path = path.strip_prefix('/').unwrap_or(path);
+                    let url = percent_decode(path.as_bytes())
+                        .decode_utf8_lossy()
+                        .to_string();
+                    let resp = build_img_response(&client, &url).await;
+                    let _ = responder.respond(resp);
+                });
+            },
+        )
         .plugin(
             tauri_plugin_log::Builder::new()
                 .level(log::LevelFilter::Info)
@@ -136,7 +164,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
         .manage(PendingFiles::default())
-        .invoke_handler(tauri::generate_handler![safe_remove, opened_files, proxy_image])
+        .invoke_handler(tauri::generate_handler![safe_remove, opened_files])
         .setup(|app| {
             // Windows 冷启动:双击文件唤起应用,文件路径作为 argv 传入。
             // setup 早于前端 webview 加载,此处存入 state,前端 invoke 时可拿到。

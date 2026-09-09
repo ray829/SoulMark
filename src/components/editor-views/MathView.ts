@@ -1,6 +1,7 @@
 import { $remark, $node, $view } from "@milkdown/kit/utils";
 import remarkMath from "remark-math";
-import katex from "katex";
+import type { NodeView } from "@milkdown/kit/prose/view";
+import type { Node } from "@milkdown/kit/prose/model";
 
 /* 注入 remark-math:解析 $...$ → mdast inlineMath,$$...$$ → mdast math */
 const remarkMathPlugin = $remark("remarkMath", () => remarkMath, {});
@@ -52,44 +53,106 @@ const mathBlockSchema = $node("math_block", () => ({
   toDOM: () => ["div", { class: "math-block" }, 0],
 }));
 
-/* KaTeX 渲染(只读,contentDOM=null;编辑改 LaTeX 源码) */
-function renderKatex(text: string, displayMode: boolean): string {
+/* 动态加载 katex(包大,首屏无公式时不加载)。
+   与 MermaidView 同模式:JS + CSS 一并动态 import(Vite 拆为独立 chunk,
+   首屏不阻塞渲染)。原方案顶部静态 import + Editor 静态 import CSS,
+   无论文档有无公式都首屏同步加载 256K JS + 28K CSS。 */
+type KatexModule = typeof import("katex");
+let katexPromise: Promise<KatexModule> | null = null;
+function loadKatex(): Promise<KatexModule> {
+  if (!katexPromise) {
+    katexPromise = Promise.all([
+      import("katex"),
+      import("katex/dist/katex.min.css"),
+    ]).then(([m]) => m);
+  }
+  return katexPromise;
+}
+
+/** 用 katex 渲染 LaTeX 为 HTML;渲染抛错时回退显示源码。 */
+function renderKatex(katexMod: KatexModule, text: string, displayMode: boolean): string {
   try {
-    return katex.renderToString(text, { displayMode, throwOnError: false });
+    return katexMod.renderToString(text, { displayMode, throwOnError: false });
   } catch {
     return text;
   }
 }
 
-const mathInlineView = $view(mathInlineSchema, () => (node) => {
-  const dom = document.createElement("span");
-  dom.className = "math-inline";
-  dom.innerHTML = renderKatex(node.textContent, false);
-  return {
-    dom,
-    contentDOM: null,
-    update: (newNode) => {
-      if (newNode.type !== node.type) return false;
-      dom.innerHTML = renderKatex(newNode.textContent, false);
-      return true;
-    },
-  };
-});
+/** 行内公式 NodeView:加载/渲染前显示 LaTeX 源码,异步 katex 就绪后渲染。
+ *  generation 防竞态:快速 update 时旧 render 的 await 完成后不回写。 */
+class MathInlineView implements NodeView {
+  dom: HTMLElement;
+  contentDOM: null = null;
+  private node: Node;
+  private generation = 0;
 
-const mathBlockView = $view(mathBlockSchema, () => (node) => {
-  const dom = document.createElement("div");
-  dom.className = "math-block";
-  dom.innerHTML = renderKatex(node.textContent, true);
-  return {
-    dom,
-    contentDOM: null,
-    update: (newNode) => {
-      if (newNode.type !== node.type) return false;
-      dom.innerHTML = renderKatex(newNode.textContent, true);
-      return true;
-    },
-  };
-});
+  constructor(node: Node) {
+    this.node = node;
+    this.dom = document.createElement("span");
+    this.dom.className = "math-inline";
+    void this.render();
+  }
+
+  private async render(): Promise<void> {
+    const gen = ++this.generation;
+    const text = this.node.textContent;
+    this.dom.textContent = text; // fallback:加载/渲染前显示源码
+    try {
+      const katexMod = await loadKatex();
+      if (gen !== this.generation) return; // 被新 render 取代
+      this.dom.innerHTML = renderKatex(katexMod, text, false);
+    } catch {
+      /* keep fallback(源码) */
+    }
+  }
+
+  update(newNode: Node): boolean {
+    if (newNode.type !== this.node.type) return false;
+    const changed = newNode.textContent !== this.node.textContent;
+    this.node = newNode;
+    if (changed) void this.render();
+    return true;
+  }
+}
+
+/** 块级公式 NodeView:同 MathInlineView,displayMode=true。 */
+class MathBlockView implements NodeView {
+  dom: HTMLElement;
+  contentDOM: null = null;
+  private node: Node;
+  private generation = 0;
+
+  constructor(node: Node) {
+    this.node = node;
+    this.dom = document.createElement("div");
+    this.dom.className = "math-block";
+    void this.render();
+  }
+
+  private async render(): Promise<void> {
+    const gen = ++this.generation;
+    const text = this.node.textContent;
+    this.dom.textContent = text; // fallback
+    try {
+      const katexMod = await loadKatex();
+      if (gen !== this.generation) return;
+      this.dom.innerHTML = renderKatex(katexMod, text, true);
+    } catch {
+      /* keep fallback(源码) */
+    }
+  }
+
+  update(newNode: Node): boolean {
+    if (newNode.type !== this.node.type) return false;
+    const changed = newNode.textContent !== this.node.textContent;
+    this.node = newNode;
+    if (changed) void this.render();
+    return true;
+  }
+}
+
+const mathInlineView = $view(mathInlineSchema, () => (node: Node) => new MathInlineView(node));
+const mathBlockView = $view(mathBlockSchema, () => (node: Node) => new MathBlockView(node));
 
 export const mathPlugins = [
   remarkMathPlugin,

@@ -128,9 +128,9 @@ export function SettingsModal(props: SettingsModalProps) {
             label="背景压暗"
             value={bgDim}
             min={0}
-            max={1}
-            step={0.05}
-            format={(v) => `${Math.round(v * 100)}%`}
+            max={100}
+            step={1}
+            format={(v) => `${Math.round(v)}%`}
             onChange={onSetBgDim}
             disabled={!hasBg}
           />
@@ -144,7 +144,7 @@ export function SettingsModal(props: SettingsModalProps) {
           <RangeSlider
             label="通透度"
             value={glassOpacity}
-            min={0.4}
+            min={0}
             max={1}
             step={0.05}
             format={(v) => `${Math.round(v * 100)}%`}

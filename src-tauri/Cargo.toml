@@ -27,9 +27,10 @@ tauri-plugin-dialog = "2"
 tauri-plugin-log = "2"
 log = "0.4"
 # 图片代理:部分图床(如 haowallpaper.com)对带 Referer 的 webview 请求防盗链返回 403。
-# 用 reqwest 在 Rust 侧请求(不发 Referer),绕过防盗链,把字节经 IPC 返回前端。
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "blocking", "gzip"] }
-base64 = "0.22"
+# 通过自定义协议 imgproxy:// 在 Rust 侧 reqwest 请求(不发 Referer,绕防盗链 + 解 gzip),
+# 把字节流式作为协议响应体返回,前端 <img> 直连协议 URL,字节不经 JS 堆/IPC,无 base64 放大。
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "gzip"] }
+percent-encoding = "2"
 
 # 仅 Windows/Linux 需要:捕获"第二个实例唤起已运行实例"时的命令行参数。
 # macOS 由系统保证单实例,文件打开事件走 RunEvent::Opened,无需此插件。

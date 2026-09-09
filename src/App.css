@@ -114,7 +114,7 @@
      动态写入 :root inline style,localStorage 持久化。无背景图时回退纯色兜底。 */
   --bg-image: none;        /* 背景图 URL,无图 none */
   --bg-blur: 0px;          /* 背景图自身模糊(让杂图柔和) */
-  --bg-dim: 0.35;          /* 遮罩强度 0~1(可读性兜底) */
+  --bg-dim: 0.35;          /* 遮罩强度 0~1(useSettings 写入时由 0~100 /100 转换) */
   --glass-blur: 16px;      /* 容器 backdrop 模糊半径 */
   --glass-opacity: 0.85;   /* 全局容器透明度基准(各容器按需 calc 偏移分档) */
 
@@ -292,7 +292,7 @@ body,
 }
 
 /* 遮罩层:压在背景图上、容器下,统一降亮保证可读。
-   伪元素避免多加 DOM;强度由 --bg-dim(0~1)控制。 */
+   伪元素避免多加 DOM;强度由 --bg-dim(0~1,由 useSettings 的 0~100 ÷100 写入)控制。 */
 .bg-layer::after {
   content: "";
   position: absolute;

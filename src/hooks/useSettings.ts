@@ -92,10 +92,15 @@ export function useSettings() {
   // 背景与毛玻璃参数
   const [bgImage, setBgImageState] = useState<string>(() => readStoredStr(LS_BG_IMAGE, ""));
   const [bgBlur, setBgBlur] = useState<number>(() => readStoredNum(LS_BG_BLUR, 0, 0, 40));
-  const [bgDim, setBgDim] = useState<number>(() => readStoredNum(LS_BG_DIM, 0.35, 0, 1));
+  // bgDim 用 0~100(滑块/存储直观),写 --bg-dim 时除以 100 转 0~1 供 CSS opacity 消费。
+  // 迁移:旧版存的是 0~1 小数,读出 <1 视为旧值 ×100 升级到新范围。
+  const [bgDim, setBgDim] = useState<number>(() => {
+    const raw = readStoredNum(LS_BG_DIM, 35, 0, 100);
+    return raw < 1 ? Math.round(raw * 100) : raw;
+  });
   const [glassBlur, setGlassBlur] = useState<number>(() => readStoredNum(LS_GLASS_BLUR, 8, 0, 32));
   const [glassOpacity, setGlassOpacity] = useState<number>(() =>
-    readStoredNum(LS_GLASS_OPACITY, 0.4, 0.4, 1),
+    readStoredNum(LS_GLASS_OPACITY, 0.4, 0, 1),
   );
 
   // 主题 → <html data-theme> + 持久化
@@ -129,13 +134,16 @@ export function useSettings() {
     }
   }, [sourceMode]);
 
+  // 正文图片宽度比例已移除:--editor-img-scale 不再由设置写入,editor.css 用其默认值
+  // 0.8(图右留空给光标定位到图后编辑图片链接)。
+
   // 背景与毛玻璃 → 写 :root CSS 变量 + 持久化。
   // 各毛玻璃容器经 var() 引用这些变量,实时生效(设置面板调滑块即见预览)。
   useEffect(() => {
     const root = document.documentElement.style;
     root.setProperty("--bg-image", bgImage ? `url("${bgImage}")` : "none");
     root.setProperty("--bg-blur", `${bgBlur}px`);
-    root.setProperty("--bg-dim", String(bgDim));
+    root.setProperty("--bg-dim", String(bgDim / 100));
     root.setProperty("--glass-blur", `${glassBlur}px`);
     root.setProperty("--glass-opacity", String(glassOpacity));
     try {
@@ -168,7 +176,7 @@ export function useSettings() {
   const resetBackground = useCallback(() => {
     setBgImageState("");
     setBgBlur(0);
-    setBgDim(0.35);
+    setBgDim(35);
     setGlassBlur(8);
     setGlassOpacity(0.4);
   }, []);

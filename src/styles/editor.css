@@ -253,6 +253,7 @@
   backdrop-filter: blur(8px);
   cursor: zoom-out;
   animation: lightbox-in 150ms ease;
+  overflow: hidden; /* 放大后裁切,拖动查看局部 */
 }
 .img-lightbox img {
   max-width: 90vw;
@@ -260,6 +261,52 @@
   border-radius: var(--radius);
   box-shadow: var(--shadow-glass-lg);
   object-fit: contain;
+  user-select: none;
+  -webkit-user-drag: none; /* 禁止图片原生拖拽,改用 lightbox 内 transform 平移 */
+}
+/* 缩放控制条:底部居中胶囊 */
+.lightbox-controls {
+  position: absolute;
+  bottom: 28px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  background: rgba(0, 0, 0, 0.55);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  border-radius: 999px;
+  box-shadow: var(--shadow-glass-lg);
+}
+.lightbox-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  height: 32px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: #fff;
+  font-size: 16px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+.lightbox-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.18);
+}
+.lightbox-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.lightbox-btn.zoom-label {
+  min-width: 60px;
+  font-size: 13px;
 }
 @keyframes lightbox-in {
   from { opacity: 0; }
@@ -297,10 +344,96 @@
   border-bottom-color: var(--accent);
 }
 
-/* 图片 */
+/* 图片
+   inline-block:图片回到行内流,光标落在图右侧同一行(非图下新行)。
+   max-width 用 --editor-img-scale 缩放(默认 0.8):图右留空给光标定位
+   (否则图撑满整行,光标被挤到下一行)。
+   vertical-align:middle:避免 inline-block 默认 baseline 对齐在图下方留出空隙,
+   让图片垂直居中于行,光标在图右侧中部,视觉协调。
+   居中取舍:inline-block 下 margin-inline:auto 无效(只有 block 才 auto 居中),
+   图片默认左对齐。若需"仅含图片的段落"居中,需 ProseMirror 给段落打 class 配合,
+   纯 CSS 无法可靠识别"段落无文字"(text node 不命中 :has)。
+   夹在文字中间的图片不再强制换行(回到 inline 自然流)。 */
 .milkdown img {
-  max-width: 100%;
+  display: inline-block;
+  max-width: calc(var(--editor-img-scale, 0.8) * 100%);
   border-radius: 6px;
+  vertical-align: middle;
+}
+/* 仅含图片、无文字的段落(imageCenterPlugin 用 Decoration.node 打 img-only-para class)居中。
+   inline-block img 无法用 margin auto 居中(仅 block 有效),改用父段 text-align:center
+   居中 inline-block 子元素。纯 CSS :has() 无法识别"段落无文字"(text node 不命中),故由
+   imageCenterPlugin 在渲染层打标记。文字+图片段落不命中,保持 inline 自然流不居中。 */
+.milkdown p.img-only-para {
+  text-align: center;
+}
+/* 选中图片节点高亮:ProseMirror 对 atom node 选中时自动加 .ProseMirror-selectednode,
+   给选中图加边框,用户明确感知"已选中"(单击选中、可方向键移光标到图后)。 */
+.milkdown img.ProseMirror-selectednode {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* 图片源码行(Decoration.widget 注入,文档流内,非 fixed):
+   选中图片时在图片正上方显示 `![alt](src)` 可编辑单行 + 放大按钮,与图片同宽对齐。
+   widget 由 imageCodePlugin 的 decorations(state) 驱动,选区变化自动移除;
+   stopEvent+ignoreSelection 使 input 可聚焦编辑且不丢 NodeSelection。
+   max-width 与 .milkdown img 同用 --editor-img-scale,视觉与图片对齐居中。
+   margin 上8下4:上方与上文分隔,下方贴近图片,源码行与图片视觉成组。
+   flex:源码输入框(flex:1)与放大按钮(flex:none)并排一行工具区。 */
+.milkdown .md-image-code-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px auto 4px;
+  max-width: calc(var(--editor-img-scale, 0.8) * 100%);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.milkdown .md-image-code-input {
+  flex: 1;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 3px 8px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--font-mono, ui-monospace, "SF Mono", Menlo, monospace);
+  font-size: 14px;
+  line-height: 1.5;
+  outline: none;
+}
+.milkdown .md-image-code-input:focus {
+  color: var(--text);
+}
+
+/* 图片放大按钮:与源码输入框同处一行(选中图片时由 imageCodePlugin 的 widget 一并注入),
+   点击 → onPreview → lightbox 放大预览。样式与 .code-copy 同款项目图标按钮:
+   var(--surface) 底 + var(--border) 边框 + var(--text-secondary) 图标色,
+   hover 升 var(--text)/var(--hover-active)。SVG 与 icons.tsx ICON_ATTRS 同款 stroke 风格。 */
+.md-image-zoom-btn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+.md-image-zoom-btn:hover {
+  background: var(--hover-active);
+  color: var(--text);
+}
+.md-image-zoom-btn svg {
+  width: 16px;
+  height: 16px;
 }
 
 /* 分隔线 */

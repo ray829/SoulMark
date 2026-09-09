@@ -155,52 +155,16 @@ export async function saveImageAsset(
   return `.assets/${finalName}`;
 }
 
-/** 外链图片加载兜底:webview 加载失败(onerror)时,改走 fetch → Rust 代理两级兜底。
+/** 外链图片代理 URL:把原始外链 URL 转为 imgproxy 自定义协议 URL。
  *
- * 两类失败场景:
- *  1. 图床强制 gzip(haowallpaper.com):<img> 子资源带 gzip 编码,webview 不解压 → 破图。
- *     webview 的 fetch 走 HTTP 客户端层会正确解压 gzip,故 fetch 成功 → blob → 显示。
- *  2. 图床防盗链(haowallpaper.com 对 webview 的 Origin 返回 403):fetch 也带 Origin 被拦。
- *     Rust 侧 reqwest 不发 Origin/Referer,绕过防盗链;且 .gzip(true) 自动解压 → blob → 显示。
+ * Rust 侧 imgproxy 协议 handler 用 reqwest 请求(不发 Origin/Referer 绕防盗链 +
+ * .gzip(true) 解强制 gzip),把字节流式作为协议响应体返回。<img> 直连协议 URL,
+ * 字节不经 JS 堆/IPC,无 base64 放大、无 objectURL 泄漏,WebView 自动管理位图生命周期。
  *
- * 流程:先 fetch(解 gzip),失败再 Rust proxy_image(解 gzip + 绕防盗链)→ blob → objectURL → 替换 src。
- * 幂等:el.dataset.imgFallback 标记已处理,防 onerror 反复触发。
- * objectURL 不 revoke:img 节点常驻文档生命周期,过早 revoke 反致裂图;单图内存可控。 */
-export async function fetchFallbackImage(el: HTMLImageElement, originalSrc: string): Promise<void> {
-  if (el.dataset.imgFallback) return; // 已处理,防重复
-  el.dataset.imgFallback = "1";
-  try {
-    // 第一级:fetch。对强制 gzip 的图床有效(webview fetch 会解压 gzip);
-    // 对防盗链图床会 403(带 webview Origin),落到第二级。
-    const res = await fetch(originalSrc, { mode: "cors", credentials: "omit" });
-    if (res.ok) {
-      const blob = await res.blob();
-      if (blob.size > 0) {
-        el.src = URL.createObjectURL(blob);
-        return;
-      }
-    }
-    await proxyFallback(el, originalSrc);
-  } catch {
-    // fetch 抛错(CORS 拒绝/网络失败):落 Rust 代理。
-    await proxyFallback(el, originalSrc);
-  }
-}
-
-/** Rust 代理兜底:绕过防盗链 + 解压 gzip。
- *  reqwest 不发 Origin/Referer(绕防盗链) + .gzip(true)(解强制 gzip),
- *  返回 base64 → 前端 atob → Blob(不指定 type,让 webview 按字节 magic 识别,
- *  避免服务器 content-type 撒谎误导解码器)→ objectURL → 替换 src。 */
-async function proxyFallback(el: HTMLImageElement, url: string): Promise<void> {
-  try {
-    const { invoke } = await import("@tauri-apps/api/core");
-    const [b64] = await invoke<[string, string]>("proxy_image", { url });
-    const bin = atob(b64);
-    const bytes = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    el.src = URL.createObjectURL(new Blob([bytes]));
-  } catch {
-    // Rust 代理也失败(网络不可达等):静默放弃,保持原破图。
-  }
+ * 跨平台:convertFileSrc 第二参指定协议,Tauri 按 macOS/Linux 生成 imgproxy://localhost/<enc>,
+ * Windows 生成 http://imgproxy.localhost/<enc>(encodeURIComponent 编码整条 URL 作为 path)。
+ */
+export function proxyImageSrc(url: string): string {
+  return convertFileSrc(url, "imgproxy");
 }
 

@@ -9,6 +9,7 @@
    - 本方案 decoration 只改 color,不改布局,高度恒定。 */
 
 import { $proseAsync } from "@milkdown/kit/utils";
+import { editorViewCtx } from "@milkdown/kit/core";
 import { Plugin, PluginKey } from "@milkdown/kit/prose/state";
 import { Decoration, DecorationSet } from "@milkdown/kit/prose/view";
 import { findChildren } from "@milkdown/kit/prose";
@@ -17,22 +18,49 @@ import { createHighlighter, type Highlighter } from "shiki";
 import type { Node as PmNode } from "@milkdown/kit/prose/model";
 import type { Ctx } from "@milkdown/kit/ctx";
 
-/* Shiki highlighter 单例:首次 await 加载主题 + 语言包,之后同步复用。
+/* Shiki highlighter 单例:首次 await 仅加载主题(不预载任何语言),之后同步复用。
    预加载 github-light / github-dark 双主题,运行时按 currentTheme 切换,
-   配合应用 data-theme(暗色底用 github-dark,token 色才可读)。 */
+   配合应用 data-theme(暗色底用 github-dark,token 色才可读)。
+   语言按需加载:遇到具体代码块时由 ensureLanguage 调 loadLanguage,各语言为独立
+   chunk,只有文档真正出现的语言才下载——原方案硬编码 17 语言,首屏无论有无代码块
+   都同步加载约 1.8MB grammar(cpp 一个就 768K)。 */
 let hlPromise: Promise<Highlighter> | null = null;
 function getHL(): Promise<Highlighter> {
   if (!hlPromise) {
     hlPromise = createHighlighter({
       themes: ["github-light", "github-dark"],
-      langs: [
-        "javascript", "typescript", "jsx", "tsx", "python", "go", "rust",
-        "json", "bash", "markdown", "sql", "css", "html", "yaml", "java",
-        "c", "cpp",
-      ],
+      langs: [],
     });
   }
   return hlPromise;
+}
+
+/* 按需加载语言:记录在途 / 失败的语言,避免重复触发 loadLanguage。
+   loadLanguage 返回 Promise(各自动态 import 对应 grammar chunk),完成后
+   dispatch force-highlight 让 ProseMirror 重算 decoration → 代码块由无色变高亮。
+   失败(不支持的语言名等)记入 failedLangs,避免反复重试。 */
+const loadingLangs = new Set<string>();
+const failedLangs = new Set<string>();
+function ensureLanguage(ctx: Ctx, lang: string, hl: Highlighter): void {
+  if (!lang || loadingLangs.has(lang) || failedLangs.has(lang)) return;
+  if (hl.getLoadedLanguages().includes(lang)) return;
+  loadingLangs.add(lang);
+  void hl
+    .loadLanguage(lang as never)
+    .then(() => {
+      loadingLangs.delete(lang);
+      // 语法加载完成:触发重算 decoration(此时该 lang 已可着色)。
+      try {
+        const view = ctx.get(editorViewCtx);
+        view.dispatch(view.state.tr.setMeta("force-highlight", true));
+      } catch {
+        /* view 已销毁,忽略 */
+      }
+    })
+    .catch(() => {
+      loadingLangs.delete(lang);
+      failedLangs.add(lang);
+    });
 }
 
 /* 当前高亮主题(模块级):由 setShikiTheme 切换。
@@ -82,6 +110,9 @@ function buildDecorations(
     const language = (block.node.attrs.language as string) || "";
     const loaded = hl.getLoadedLanguages();
     const lang = language && loaded.includes(language) ? language : "";
+    // 语言未加载:触发按需 loadLanguage(异步),完成后 dispatch force-highlight 重算。
+    // 本轮该块不着色(下方 !lang continue),加载完成后的重算会着色。
+    if (language && !lang) ensureLanguage(ctx, language, hl);
     if (!lang) continue; // 无语言或语言包未加载:不着色,退化为普通文本(不抖动)
 
     // 命中缓存则复用 token,未命中才 codeToTokens(大文档按键只重算被编辑的块)

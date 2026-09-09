@@ -22,6 +22,8 @@ const SCROLL_OFFSET = 12;
 const RESCAN_DEBOUNCE = 200;
 /** 点击跳转后暂停高亮更新的兜底时长(作为 scrollend 不可用时的回退)。 */
 const SCROLL_LOCK_MS = 1000;
+/** 图片 load/error 后重算 absTop 的防抖延迟:合并同一批图片加载完成,避免连续重排。 */
+const IMG_LOAD_DEBOUNCE = 150;
 
 /** 计算元素在滚动容器文档坐标中的绝对 top。
  *  scroll 时 el 与 container 的 rect 同步移动,scrollTop 反向补偿 → absTop 恒定。
@@ -232,6 +234,28 @@ export function useOutline(scrollRef: React.RefObject<HTMLElement | null>) {
       if (timer) window.clearTimeout(timer);
     };
   }, [recomputeAbsTop]);
+
+  // 图片加载:img load/error 后布局变化(图片撑开),旧 absTop 失效,防抖重算。
+  // img 的 load/error 不冒泡,用 capture 阶段在容器上委托捕获。
+  // 编辑器在 scrollRef 容器内(App.tsx wrapRef),事件能被捕获,无需 Editor 跨组件通信。
+  useEffect(() => {
+    const container = scrollRef.current;
+    if (!container) return;
+    let timer: number | undefined;
+    const onImgMutate = () => {
+      if (timer) window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        recomputeAbsTop();
+      }, IMG_LOAD_DEBOUNCE);
+    };
+    container.addEventListener("load", onImgMutate, { capture: true });
+    container.addEventListener("error", onImgMutate, { capture: true });
+    return () => {
+      container.removeEventListener("load", onImgMutate, { capture: true });
+      container.removeEventListener("error", onImgMutate, { capture: true });
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [scrollRef, recomputeAbsTop]);
 
   /** 点击跳转:立即把当前项设为被点击标题(高亮即时跟随),
    *  再平滑滚动;锁定期间暂停滚动高亮更新,避免动画中途乱跳。

@@ -6,6 +6,7 @@ import { Outline } from "./components/Outline";
 import { Sidebar } from "./components/Sidebar";
 import { Welcome } from "./components/Welcome";
 import { ContextMenu, type MenuItem } from "./components/ContextMenu";
+import { ImageLightbox } from "./components/ImageLightbox";
 import { WindowControls } from "./components/WindowControls";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { FloatingBall } from "./components/FloatingBall";
@@ -220,12 +221,11 @@ function App() {
   //   展开态不加(主内容区已在侧栏右侧,再加会错位)。全屏时 --traffic-left=0,自然适配。
   const tabsMarginLeft = sidebarCollapsed ? 88 : sidebarWidth;
 
-  // 点击编辑区内图片:打开放大预览
-  const onEditorClick = useCallback((e: React.MouseEvent) => {
-    const t = e.target as HTMLElement;
-    const img = t.closest?.("img") as HTMLImageElement | null;
-    if (img && img.src) setPreview({ src: img.src, alt: img.alt });
-  }, []);
+  // 点击编辑区内图片:不放大。图片选中由 imageSelectPlugin(ProseMirror handleClick)
+  // 主动建 NodeSelection,选中后在图片上方显示源码行 + 放大按钮(imageCodePlugin widget);
+  // 选中图片时点放大按钮触发预览(非悬停)。
+  // 放大预览经 MarkdownEditor 的 onPreview 回调(setPreview)打开 lightbox。
+  // Esc/缩放/平移由 ImageLightbox 内部处理。
 
   const closeCtx = useCallback(() => setCtxMenu(null), []);
   const onContext = useCallback((e: React.MouseEvent, items: MenuItem[]) => {
@@ -619,10 +619,9 @@ function App() {
             className="editor-wrap"
             onContextMenu={onEditorContextMenu}
             onMouseDown={onEditorMouseDown}
-            onClick={onEditorClick}
           >
             <ErrorBoundary>
-              <MarkdownEditor ref={editorRef} onChange={onMdChange} onReady={onEditorReady} filePath={currentPath} />
+              <MarkdownEditor ref={editorRef} onChange={onMdChange} onReady={onEditorReady} filePath={currentPath} onPreview={setPreview} />
             </ErrorBoundary>
             {/* 源码模式:等宽字体 textarea 承载 md 原文,绝对定位覆盖 Milkdown。
                 渲染条件含 editorReady:冷启动持久化源码模式时等 Milkdown 就绪再挂载,
@@ -686,11 +685,9 @@ function App() {
         />
       )}
 
-      {/* 图片放大预览层 */}
+      {/* 图片放大预览层:滚轮/按钮/键盘多级缩放,拖动平移,Esc 关闭 */}
       {preview && (
-        <div className="img-lightbox" onClick={() => setPreview(null)}>
-          <img src={preview.src} alt={preview.alt} />
-        </div>
+        <ImageLightbox src={preview.src} alt={preview.alt} onClose={() => setPreview(null)} />
       )}
     </div>
     </>
